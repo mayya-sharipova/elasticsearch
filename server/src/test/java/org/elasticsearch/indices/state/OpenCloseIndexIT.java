@@ -19,6 +19,7 @@
 
 package org.elasticsearch.indices.state;
 
+import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
 import org.elasticsearch.action.admin.cluster.state.ClusterStateResponse;
@@ -29,12 +30,15 @@ import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.indices.IndexOpenException;
 import org.elasticsearch.test.ESIntegTestCase;
 
 import java.io.IOException;
@@ -418,5 +422,33 @@ public class OpenCloseIndexIT extends ESIntegTestCase {
                 disableIndexBlock("test", blockSetting);
             }
         }
+    }
+
+    public void testOpenIndexWithArchivedSettings() throws Exception{
+        Client client = client();
+        createIndex("test1");
+        ClusterHealthResponse healthResponse = client.admin().cluster().prepareHealth().setWaitForGreenStatus().execute().actionGet();
+        assertThat(healthResponse.isTimedOut(), equalTo(false));
+
+        CloseIndexResponse closeIndexResponse = client.admin().indices().prepareClose("test1").execute().actionGet();
+        assertThat(closeIndexResponse.isAcknowledged(), equalTo(true));
+        assertIndexIsClosed("test1");
+
+        ClusterState state = client().admin().cluster().prepareState().get().getState();
+        IndexMetaData metaData = state.getMetaData().index("test1");
+        for (NodeEnvironment services : internalCluster().getInstances(NodeEnvironment.class)) {
+            IndexMetaData brokenMeta = IndexMetaData.builder(metaData).settings(Settings.builder().put(metaData.getSettings())
+                .put(IndexMetaData.SETTING_VERSION_CREATED, Version.CURRENT.minimumIndexCompatibilityVersion().id)
+                // this is invalid but should be archived
+                .put("index.similarity.BM25.type", "classic")
+                // this one is not validated ahead of time and breaks allocation
+                .put("index.analysis.filter.myCollator.type", "icu_collation")
+            ).build();
+            IndexMetaData.FORMAT.write(brokenMeta, services.indexPaths(brokenMeta.getIndex()));
+        }
+
+        Exception e = expectThrows(IndexOpenException.class, () ->
+            client.admin().indices().prepareOpen("test1").execute().actionGet());
+        assertThat(e.getMessage(), is("no such index"));
     }
 }
