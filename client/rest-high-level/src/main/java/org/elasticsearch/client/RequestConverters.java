@@ -87,6 +87,7 @@ import org.elasticsearch.action.search.SearchScrollRequest;
 import org.elasticsearch.action.support.ActiveShardCount;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.support.WriteRequest;
+import org.elasticsearch.action.termvectors.TermVectorsRequest;
 import org.elasticsearch.action.update.UpdateRequest;
 import org.elasticsearch.cluster.health.ClusterHealthStatus;
 import org.elasticsearch.common.Nullable;
@@ -1082,6 +1083,19 @@ final class RequestConverters {
         Request req = new Request(HttpGet.METHOD_NAME, builder.build());
         req.setEntity(createEntity(request, REQUEST_BODY_CONTENT_TYPE));
         return req;
+    }
+
+    static Request termVectors(TermVectorsRequest tvrequest) throws IOException {
+        Request request = new Request(HttpGet.METHOD_NAME,
+            endpoint(tvrequest.index(), tvrequest.type(), tvrequest.id(), "_termvectors"));
+        Params params = new Params(request);
+        params.withRouting(tvrequest.routing());
+        params.withVersion(tvrequest.version());
+        params.withVersionType(tvrequest.versionType());
+        params.withRealtime(tvrequest.realtime());
+        params.withPreference(tvrequest.preference());
+        request.setEntity(createEntity(tvrequest, REQUEST_BODY_CONTENT_TYPE));
+        return request;
     }
 
     static Request getScript(GetStoredScriptRequest getStoredScriptRequest) {

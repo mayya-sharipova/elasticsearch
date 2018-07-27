@@ -74,7 +74,7 @@ import static org.apache.lucene.util.ArrayUtil.grow;
  * offsets in {@code headerRef} are used to find where the block for a field
  * starts. Each block begins with a
  * <ul>
- * <li>vint: number of terms</li>
+ * <li>vlong: number of terms</li>
  * <li>boolean: positions (has it positions stored?)</li>
  * <li>boolean: offsets (has it offsets stored?)</li>
  * <li>boolean: payloads (has it payloads stored?)</li>

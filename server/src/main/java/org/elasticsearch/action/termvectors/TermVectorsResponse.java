@@ -38,12 +38,16 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.ToXContentObject;
 import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.XContentParseException;
 import org.elasticsearch.search.dfs.AggregatedDfs;
+import org.elasticsearch.common.xcontent.XContentParser;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 public class TermVectorsResponse extends ActionResponse implements ToXContentObject {
@@ -168,6 +172,218 @@ public class TermVectorsResponse extends ActionResponse implements ToXContentObj
             };
         }
     }
+
+    public static TermVectorsResponse fromXContent(XContentParser parser) throws IOException{
+        TermVectorsResponse tvResponse = new TermVectorsResponse();
+
+
+        XContentParser.Token token = parser.currentToken();
+        String currentFieldName = parser.currentName();
+        if (token != XContentParser.Token.START_OBJECT) {
+            throw new XContentParseException(parser.getTokenLocation(), "[term_vector] Expected START_OBJECT but was: " + token);
+        }
+
+        while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+            if (token == XContentParser.Token.FIELD_NAME) {
+                currentFieldName = parser.currentName();
+            } else if (token.isValue()) {
+                if (currentFieldName.equals(FieldStrings._INDEX)) {
+                    tvResponse.index = parser.text();
+                } else if (currentFieldName.equals(FieldStrings._TYPE)) {
+                    tvResponse.type = parser.text();
+                } else {
+                    throw new IllegalArgumentException("Unexpected field [" + currentFieldName + "]");
+                }
+            } else if (token == XContentParser.Token.START_OBJECT) {
+                if (currentFieldName.equals(FieldStrings.TERM_VECTORS)) {
+                    while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                        termVectorsFromXContent(parser, tvResponse);
+                    }
+                } else {
+                    throw new IllegalArgumentException("Unexpected object field [" + currentFieldName + "]");
+                }
+            } else {
+                throw new XContentParseException(parser.getTokenLocation(), "[term_vector] unexpected token: " + token);
+            }
+        }
+
+        return tvResponse;
+    }
+
+    private static void termVectorsFromXContent (XContentParser parser, TermVectorsResponse tvResponse) throws IOException {
+        final BytesStreamOutput output = new BytesStreamOutput(1);
+        final BytesStreamOutput termsOutput = new BytesStreamOutput(1);
+        final List<String> fields = new ArrayList<>();
+        final List<Long> fieldOffset = new ArrayList<>();
+        String currentFieldName = null;
+        boolean hasFieldStatistics = false;
+        boolean hasTermStatistics = false;
+        boolean hasScores = false;
+
+        XContentParser.Token token = parser.currentToken();
+        while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+            // process term_vector for this field
+            assert token == XContentParser.Token.FIELD_NAME;
+            String tvFieldName = parser.currentName();
+            assert parser.nextToken() == XContentParser.Token.START_OBJECT ;
+
+            long sumTotalTermFreq = -1;
+            long sumDocFreq = -1;
+            int docCount = -1;
+            long termsSize = 0;
+
+            boolean hasPositions = false;
+            boolean hasOffsets = false;
+            boolean hasPayloads = false;
+
+            while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                if (token == XContentParser.Token.FIELD_NAME) {
+                    currentFieldName = parser.currentName();
+                } else if (token == XContentParser.Token.START_OBJECT) {
+                    if (currentFieldName.equals(FieldStrings.FIELD_STATISTICS)) {
+                        // process field_statistics
+                        hasFieldStatistics = true;
+                        while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                            if (token == XContentParser.Token.FIELD_NAME) {
+                                currentFieldName = parser.currentName();
+                            } else if (token.isValue()) {
+                                if (currentFieldName.equals(FieldStrings.SUM_TTF)) {
+                                    sumTotalTermFreq = parser.longValue();
+                                } else if (currentFieldName.equals(FieldStrings.SUM_DOC_FREQ)) {
+                                    sumDocFreq = parser.longValue();
+                                } else if (currentFieldName.equals(FieldStrings.DOC_COUNT)) {
+                                    docCount = parser.intValue();
+                                }
+                            }
+                        }
+                    } else if (currentFieldName.equals(FieldStrings.TERMS)){
+                        // process terms
+                        while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                            assert token == XContentParser.Token.FIELD_NAME;
+                            BytesRef term = new BytesRef(parser.currentName());
+                            assert parser.nextToken() == XContentParser.Token.START_OBJECT ;
+                            // process individual term
+                            int docFreq = -1;
+                            int termFreq = -1;
+                            long totalTermFreq = -1;
+                            float score = -1f;
+                            int[] positions = new int[0];
+                            int[] startOffsets = new int[0];
+                            int[] endOffsets = new int[0];
+                            String[] payloads = new String[0];
+                            while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                                if (token == XContentParser.Token.FIELD_NAME) {
+                                    currentFieldName = parser.currentName();
+                                } else if (token.isValue()) {
+                                    if (currentFieldName.equals(FieldStrings.TTF)) {
+                                        totalTermFreq = parser.longValue();
+                                        hasTermStatistics = true;
+                                    } else if (currentFieldName.equals(FieldStrings.DOC_FREQ)) {
+                                        docFreq = parser.intValue();
+                                    } else if (currentFieldName.equals(FieldStrings.TERM_FREQ)) {
+                                        termFreq = parser.intValue();
+                                    } else if (currentFieldName.equals(FieldStrings.SCORE)) {
+                                        hasScores = true;
+                                        score = parser.floatValue();
+                                    }
+                                } else if (token == XContentParser.Token.START_ARRAY) {
+                                    assert currentFieldName == FieldStrings.TOKENS;
+                                    assert termFreq > 0;
+                                    ArrayUtil.grow(positions, termFreq);
+                                    ArrayUtil.grow(startOffsets, termFreq);
+                                    ArrayUtil.grow(endOffsets, termFreq);
+                                    int curTokenIndex = -1;
+                                    // process tokens
+                                    while ((token = parser.nextToken()) != XContentParser.Token.END_ARRAY) {
+                                        if (token == XContentParser.Token.START_OBJECT) {
+                                            // process individual token
+                                           curTokenIndex ++;
+                                            while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                                                if (token == XContentParser.Token.FIELD_NAME) {
+                                                    currentFieldName = parser.currentName();
+                                                } else if (token.isValue()) {
+                                                    if (currentFieldName.equals(FieldStrings.POS)) {
+                                                        hasPositions = true;
+                                                        positions[curTokenIndex] = parser.intValue();
+                                                    } else if (currentFieldName.equals(FieldStrings.START_OFFSET)) {
+                                                        hasOffsets = true;
+                                                        startOffsets[curTokenIndex] = parser.intValue();
+                                                    } else if (currentFieldName.equals(FieldStrings.END_OFFSET)) {
+                                                        endOffsets[curTokenIndex] = parser.intValue();
+                                                    } else if (currentFieldName.equals(FieldStrings.PAYLOAD)) {
+                                                        hasPayloads = true;
+                                                        payloads[curTokenIndex] = parser.text();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                }
+                            }
+                            writeTerm(termsOutput, term, docFreq, termFreq, totalTermFreq, score,
+                                positions, startOffsets, endOffsets, payloads, hasPayloads);
+                            termsSize ++;
+                        }
+                    }
+                }
+            }
+            fields.add(tvFieldName);
+            fieldOffset.add(output.position());
+            output.writeVLong(termsSize);
+            output.writeBoolean(hasPositions);
+            output.writeBoolean(hasOffsets);
+            output.writeBoolean(hasPayloads);
+            if (hasFieldStatistics) {
+                output.writeVLong(Math.max(0, sumTotalTermFreq + 1));
+                output.writeVLong(Math.max(0, sumDocFreq + 1));
+                output.writeVInt(Math.max(0, docCount + 1));
+            }
+            output.writeBytesReference(termsOutput.bytes());
+            termsOutput.reset();
+        }
+
+        tvResponse.setTermVectorsField(output);
+
+        BytesStreamOutput header = new BytesStreamOutput();
+        header.writeString("TV"); // HEADER
+        header.writeInt(-1); // CURRENT_VERSION
+        header.writeBoolean(hasFieldStatistics);
+        header.writeBoolean(hasTermStatistics);
+        header.writeBoolean(hasScores);
+        header.writeVInt(fields.size());
+        for (int i = 0; i < fields.size(); i++) {
+            header.writeString(fields.get(i));
+            header.writeVLong(fieldOffset.get(i).longValue());
+        }
+        header.close();
+        tvResponse.setHeader( header.bytes());
+    }
+
+    private static void writeTerm(BytesStreamOutput output, BytesRef term, int docFreq, int termFreq, long totalTermFreq, float score,
+            int[] positions, int[] startOffsets, int[] endOffsets, String[] payloads, boolean hasPayloads) throws IOException {
+        output.writeVInt(term.length);
+        output.writeBytes(term.bytes, term.offset, term.length);
+        if (docFreq > -1) output.writeVInt(Math.max(0, docFreq + 1));
+        if (totalTermFreq > -1) output.writeVLong(Math.max(0, totalTermFreq + 1));
+        if (termFreq > 0) output.writeVInt(Math.max(0, termFreq + 1));
+        for (int i = 0; i < termFreq; i++) {
+            if (positions[i] >= 0) output.writeVInt(positions[i]);
+            if (startOffsets[i] >= 0) output.writeVInt(startOffsets[i]);
+            if (endOffsets[i] >= 0) output.writeVInt(endOffsets[i]);
+            if (hasPayloads) {
+                if (payloads[i] != null) {
+                    BytesRef payload = new BytesRef(payloads[i]);
+                    output.writeVInt(payload.length);
+                    output.writeBytes(payload.bytes, payload.offset, payload.length);
+                } else {
+                    output.writeVInt(0);
+                }
+            }
+        }
+        if (score > -1f) output.writeFloat(Math.max(0, score));
+    }
+
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
