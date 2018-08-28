@@ -20,7 +20,6 @@
 package org.elasticsearch.index.mapper;
 
 import org.apache.lucene.document.BinaryDocValuesField;
-import org.apache.lucene.document.FeatureField;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.search.DocValuesFieldExistsQuery;
@@ -28,29 +27,27 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
-import org.elasticsearch.common.lucene.Lucene;
+
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentParser.Token;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.search.DocValueFormat;
-import org.joda.time.DateTimeZone;
 
-import java.io.ByteArrayOutputStream;
+import org.joda.time.DateTimeZone;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+
 /**
- * A {@link FieldMapper} for indexing a dense vector of floats.
+ * A {@link FieldMapper} for indexing a dense vector of floats,
+ * represented as an array of floats
  */
 
-public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMapperParser {
+public class DenseVectorFieldMapper extends FieldMapper implements VectorFieldMapper, ArrayValueMapperParser {
 
     public static final String CONTENT_TYPE = "dense_vector";
-    private static final int INT_BYTES = Integer.BYTES;
 
     public static class Defaults {
         public static final MappedFieldType FIELD_TYPE = new DenseVectorFieldType();
@@ -87,7 +84,8 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
 
     public static class TypeParser implements Mapper.TypeParser {
         @Override
-        public Mapper.Builder<?,?> parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
+        public Mapper.Builder<?,?> parse(String name, Map<String, Object> node, ParserContext parserContext)
+                throws MapperParsingException {
             DenseVectorFieldMapper.Builder builder = new DenseVectorFieldMapper.Builder(name);
             return builder;
         }
@@ -187,20 +185,5 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
     @Override
     protected String contentType() {
         return CONTENT_TYPE;
-    }
-
-
-    //**************STATIC HELPER METHODS***********************************
-    // Decodes a BytesRef into a dense array <code>vector</code>
-    // TODO: possibly have another type of DocValuesField where an array of floats can be already decoded
-    public static float[] decodeVector(BytesRef vectorBR) {
-        int dimCount = NumericUtils.sortableBytesToInt(vectorBR.bytes, vectorBR.offset);
-        float[] vector = new float[dimCount];
-        int offset =  vectorBR.offset;
-        for (int dim = 0; dim < dimCount; dim++) {
-            offset = offset + INT_BYTES;
-            vector[dim] = Float.intBitsToFloat(NumericUtils.sortableBytesToInt(vectorBR.bytes, offset));
-        }
-        return vector;
     }
 }

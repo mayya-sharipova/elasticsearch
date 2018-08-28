@@ -28,7 +28,6 @@ import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentParser.Token;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
@@ -36,18 +35,17 @@ import org.elasticsearch.search.DocValueFormat;
 import org.joda.time.DateTimeZone;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 /**
- * A {@link FieldMapper} for indexing a sparse vector of floats.
+ * A {@link FieldMapper} for indexing a sparse vector of floats,
+ * represented as an map mapping integer dimensions to float values.
  */
 
-public class SparseVectorFieldMapper extends FieldMapper {
+public class SparseVectorFieldMapper extends FieldMapper implements VectorFieldMapper {
 
     public static final String CONTENT_TYPE = "sparse_vector";
-    private static final int INT_BYTES = Integer.BYTES;
 
     public static class Defaults {
         public static final MappedFieldType FIELD_TYPE = new SparseVectorFieldType();
@@ -84,7 +82,8 @@ public class SparseVectorFieldMapper extends FieldMapper {
 
     public static class TypeParser implements Mapper.TypeParser {
         @Override
-        public Mapper.Builder<?,?> parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
+        public Mapper.Builder<?,?> parse(String name, Map<String, Object> node, ParserContext parserContext)
+                throws MapperParsingException {
             SparseVectorFieldMapper.Builder builder = new SparseVectorFieldMapper.Builder(name);
             return builder;
         }
@@ -215,7 +214,7 @@ public class SparseVectorFieldMapper extends FieldMapper {
      * BytesRef --> int DimCount, int[] floats encoded as integers values, int[] dims
      * @param values - values of the sparse array
      * @param dims - dims of the sparse array
-     * @param dimCount - number of the dimension
+     * @param dimCount - number of dimensions
      * @return BytesRef
      */
     private static BytesRef encodeSparseVector(float[] values, int[] dims, int dimCount) {
@@ -237,7 +236,7 @@ public class SparseVectorFieldMapper extends FieldMapper {
      * Decodes a BytesRef into vector dimensions
      * executed after DenseVectorFieldMapper.decodeVector(vectorBR);
      * @param vectorBR
-     * @param dimCount
+     * @param dimCount - number of dimensions
      */
     public static int[] decodeVectorDims(BytesRef vectorBR, int dimCount) {
         int[] dims = new int[dimCount];
