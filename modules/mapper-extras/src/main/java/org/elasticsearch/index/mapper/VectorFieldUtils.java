@@ -3,8 +3,8 @@ package org.elasticsearch.index.mapper;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 
-public interface VectorFieldMapper {
-    int INT_BYTES = Integer.BYTES;
+public class VectorFieldUtils {
+    static int INT_BYTES = Integer.BYTES;
 
 
     //**************STATIC HELPER METHODS************************************

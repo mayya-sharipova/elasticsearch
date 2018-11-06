@@ -45,9 +45,11 @@ import java.util.Map;
  * represented as an array of floats
  */
 
-public class DenseVectorFieldMapper extends FieldMapper implements VectorFieldMapper, ArrayValueMapperParser {
+public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMapperParser {
 
     public static final String CONTENT_TYPE = "dense_vector";
+    static int INT_BYTES = Integer.BYTES;
+
 
     public static class Defaults {
         public static final MappedFieldType FIELD_TYPE = new DenseVectorFieldType();
@@ -147,7 +149,7 @@ public class DenseVectorFieldMapper extends FieldMapper implements VectorFieldMa
     }
 
     @Override
-    public FieldMapper parse(ParseContext context) throws IOException {
+    public void parse(ParseContext context) throws IOException {
         if (context.externalValueSet()) {
             throw new IllegalArgumentException("[dense_vector] field can't be used in multi-fields");
         }
@@ -155,7 +157,7 @@ public class DenseVectorFieldMapper extends FieldMapper implements VectorFieldMa
         // buffer will first contain an integer -  number of dimensions
         // after that arrays elements encoded as integers
 
-        byte[] buf = new byte[INT_BYTES + 10 * INT_BYTES]; // initially allocating buffer for 10 dimensions
+        byte[] buf = new byte[VectorFieldUtils.INT_BYTES + 10 * INT_BYTES]; // initially allocating buffer for 10 dimensions
         int offset = INT_BYTES;
         int dim = 0;
         for (Token token = context.parser().nextToken(); token != Token.END_ARRAY; token = context.parser().nextToken()) {
@@ -174,7 +176,6 @@ public class DenseVectorFieldMapper extends FieldMapper implements VectorFieldMa
         NumericUtils.intToSortableBytes(dim, buf, 0); //recording number of dimensions at the beginning
         BinaryDocValuesField field = new BinaryDocValuesField(fieldType().name(), new BytesRef(buf, 0, offset));
         context.doc().addWithKey(fieldType().name(), field);
-        return null; // no mapping update
     }
 
     @Override

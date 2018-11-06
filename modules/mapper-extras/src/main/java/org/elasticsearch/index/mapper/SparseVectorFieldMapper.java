@@ -43,9 +43,11 @@ import java.util.Map;
  * represented as an map mapping integer dimensions to float values.
  */
 
-public class SparseVectorFieldMapper extends FieldMapper implements VectorFieldMapper {
+public class SparseVectorFieldMapper extends FieldMapper {
 
     public static final String CONTENT_TYPE = "sparse_vector";
+    static int INT_BYTES = Integer.BYTES;
+
 
     public static class Defaults {
         public static final MappedFieldType FIELD_TYPE = new SparseVectorFieldType();
@@ -145,7 +147,7 @@ public class SparseVectorFieldMapper extends FieldMapper implements VectorFieldM
     }
 
     @Override
-    public FieldMapper parse(ParseContext context) throws IOException {
+    public void parse(ParseContext context) throws IOException {
         if (context.externalValueSet()) {
             throw new IllegalArgumentException("[sparse_vector] field can't be used in multi-fields");
         }
@@ -177,7 +179,6 @@ public class SparseVectorFieldMapper extends FieldMapper implements VectorFieldM
         BytesRef br = encodeSparseVector(values, dims, dimCount);
         BinaryDocValuesField field = new BinaryDocValuesField(fieldType().name(), br);
         context.doc().addWithKey(fieldType().name(), field);
-        return null; // no mapping update
     }
 
 
