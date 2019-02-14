@@ -20,6 +20,10 @@
 package org.elasticsearch.search.builder;
 
 import org.apache.logging.log4j.LogManager;
+import org.apache.lucene.document.LongPoint;
+import org.apache.lucene.index.DocValuesType;
+import org.apache.lucene.index.IndexOptions;
+import org.apache.lucene.search.Query;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.Version;
 import org.elasticsearch.common.Booleans;
@@ -38,8 +42,13 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.MapperService;
+import org.elasticsearch.index.mapper.NumberFieldMapper;
+import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
+import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.index.query.Rewriteable;
 import org.elasticsearch.script.Script;
 import org.elasticsearch.search.SearchExtBuilder;
@@ -55,6 +64,7 @@ import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.rescore.RescorerBuilder;
 import org.elasticsearch.search.searchafter.SearchAfterBuilder;
 import org.elasticsearch.search.slice.SliceBuilder;
+import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.search.sort.ScoreSortBuilder;
 import org.elasticsearch.search.sort.SortBuilder;
 import org.elasticsearch.search.sort.SortBuilders;
@@ -971,6 +981,15 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         }
         List<SortBuilder<?>> sorts = Rewriteable.rewrite(this.sorts, context);
 
+        // try rewrite numeric sort with hits optimizations
+        if ((sorts == this.sorts) && (sorts != null)){ // if there are no nested sorts
+            QueryBuilder rewrittenQueryBuilder = tryRewriteNumericSort(queryBuilder, sorts, context);
+            if (rewrittenQueryBuilder != queryBuilder) {
+                queryBuilder = rewrittenQueryBuilder;
+                sorts = null;
+            }
+        }
+
         List<RescorerBuilder> rescoreBuilders = Rewriteable.rewrite(this.rescoreBuilders, context);
         HighlightBuilder highlightBuilder = this.highlightBuilder;
         if (highlightBuilder != null) {
@@ -984,6 +1003,34 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             return shallowCopy(queryBuilder, postQueryBuilder, aggregations, this.sliceBuilder, sorts, rescoreBuilders, highlightBuilder);
         }
         return this;
+    }
+
+    private QueryBuilder tryRewriteNumericSort(QueryBuilder queryBuilder, List<SortBuilder<?>> sorts, QueryRewriteContext ctx) {
+        // check if it is sort on a numeric Long field that can be rewritten with LongDistanceFeatureQuery
+        if (sorts.size() != 1) return queryBuilder; // we need only a single sort
+        if (sorts.get(0) instanceof FieldSortBuilder == false) return queryBuilder;
+        QueryShardContext shardContext = ctx.convertToShardContext();
+        if (shardContext == null) return queryBuilder;
+        final MapperService mapperService = shardContext.getMapperService();
+        FieldSortBuilder sort = (FieldSortBuilder)sorts.get(0);
+        final String fieldName = sort.getFieldName();
+        final MappedFieldType fieldType = mapperService.fullName(fieldName);
+        if (fieldType == null) return queryBuilder;
+        if (fieldType.indexOptions() == IndexOptions.NONE) return queryBuilder;
+        if (fieldType instanceof NumberFieldMapper.NumberFieldType == false) return queryBuilder;
+        if ((fieldType.docValuesType() != DocValuesType.NUMERIC) &&
+            (fieldType.docValuesType() != DocValuesType.SORTED_NUMERIC)) return queryBuilder;
+        if (fieldType.typeName() != "long") return queryBuilder;
+
+        // ok, it can be rewritten, rewrite
+        final long origin = (sort.order() == SortOrder.DESC) ? Long.MAX_VALUE : Long.MIN_VALUE;
+        final long pivotDistance = 5;  // ? not sure what to choose for pivot distance
+        Query query = LongPoint.newDistanceFeatureQuery(fieldName, 1, origin, pivotDistance);
+
+        BoolQueryBuilder rewritten = new BoolQueryBuilder();
+        rewritten.should();
+        rewritten.filter(queryBuilder);
+        return rewritten;
     }
 
     /**
