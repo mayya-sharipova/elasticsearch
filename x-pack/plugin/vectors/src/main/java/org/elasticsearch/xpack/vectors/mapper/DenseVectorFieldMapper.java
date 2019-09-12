@@ -8,6 +8,8 @@
 package org.elasticsearch.xpack.vectors.mapper;
 
 import org.apache.lucene.document.BinaryDocValuesField;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.search.DocValuesFieldExistsQuery;
@@ -30,7 +32,12 @@ import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.xpack.vectors.query.VectorDVIndexFieldData;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +52,7 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
     public static final String CONTENT_TYPE = "dense_vector";
     public static short MAX_DIMS_COUNT = 1024; //maximum allowed number of dimensions
     private static final byte INT_BYTES = 4;
+    private static final int CENTROIDS_COUNT = 1000;
 
     public static class Defaults {
         public static final MappedFieldType FIELD_TYPE = new DenseVectorFieldType();
@@ -60,6 +68,8 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
 
     public static class Builder extends FieldMapper.Builder<Builder, DenseVectorFieldMapper> {
         private int dims = 0;
+        private float[][] centroids = null;
+        private float[] centroidsSquaredMagnitudes = null;
 
         public Builder(String name) {
             super(name, Defaults.FIELD_TYPE, Defaults.FIELD_TYPE);
@@ -75,10 +85,39 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
             return this;
         }
 
+        public Builder buildCentroids() {
+            if (centroids != null) return this;
+            AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
+                try {
+                    InputStream istream = getClass().getResourceAsStream("/centroids.txt");
+                    byte[] bytes = istream.readAllBytes();
+                    ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                    buffer.order(ByteOrder.LITTLE_ENDIAN);
+                    FloatBuffer fbuffer = buffer.asFloatBuffer();
+                    centroids = new float[CENTROIDS_COUNT][dims];
+                    centroidsSquaredMagnitudes = new float[CENTROIDS_COUNT];
+                    for (int i = 0; i < CENTROIDS_COUNT; i++) {
+                        centroidsSquaredMagnitudes[i] = 0;
+                        for (int dim = 0; dim < dims; dim++) {
+                            centroids[i][dim] = fbuffer.get();
+                            centroidsSquaredMagnitudes[i] += centroids[i][dim] * centroids[i][dim];
+                        }
+                    }
+                    istream.close();
+                } catch (IOException e) {
+                    throw new MapperParsingException("Could not load centroids");
+                }
+                return null;
+            });
+            return this;
+        }
+
         @Override
         protected void setupFieldType(BuilderContext context) {
             super.setupFieldType(context);
             fieldType().setDims(dims);
+            fieldType().setCentroids(centroids);
+            fieldType().setCentroidsSquaredMagnitudes(centroidsSquaredMagnitudes);
         }
 
         @Override
@@ -104,12 +143,16 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
                 throw new MapperParsingException("The [dims] property must be specified for field [" + name + "].");
             }
             int dims = XContentMapValues.nodeIntegerValue(dimsField);
-            return builder.dims(dims);
+            builder.dims(dims);
+            builder.buildCentroids();
+            return builder;
         }
     }
 
     public static final class DenseVectorFieldType extends MappedFieldType {
         private int dims;
+        private float[][] centroids;
+        private float[] centroidsSquaredMagnitudes;
 
         public DenseVectorFieldType() {}
 
@@ -155,6 +198,22 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
             throw new UnsupportedOperationException(
                 "Field [" + name() + "] of type [" + typeName() + "] doesn't support queries");
         }
+
+        public void setCentroids(float[][] centroids) {
+            this.centroids = centroids;
+        }
+
+        public float[][] getCentroids() {
+            return centroids;
+        }
+
+        public void setCentroidsSquaredMagnitudes(float[] centroidsSquaredMagnitudes) {
+            this.centroidsSquaredMagnitudes = centroidsSquaredMagnitudes;
+        }
+
+        public float[] getCentroidsSquaredMagnitudes() {
+            return centroidsSquaredMagnitudes;
+        }
     }
 
     private DenseVectorFieldMapper(String simpleName, MappedFieldType fieldType, MappedFieldType defaultFieldType,
@@ -183,32 +242,45 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
         // encode array of floats as array of integers and store into buf
         // this code is here and not int the VectorEncoderDecoder so not to create extra arrays
         byte[] bytes = indexCreatedVersion.onOrAfter(Version.V_7_5_0) ? new byte[dims * INT_BYTES + INT_BYTES] : new byte[dims * INT_BYTES];
-
-        ByteBuffer byteBuffer = ByteBuffer.wrap(bytes);
-        double dotProduct = 0f;
-
-        int dim = 0;
-        for (Token token = context.parser().nextToken(); token != Token.END_ARRAY; token = context.parser().nextToken()) {
-            if (dim++ >= dims) {
-                throw new IllegalArgumentException("Field [" + name() + "] of type [" + typeName() + "] of doc [" +
-                    context.sourceToParse().id() + "] has exceeded the number of dimensions [" + dims + "] defined in mapping");
+        byte[] centroidCode = new byte[2]; // 2 bytes for centroid, max centroid value -- 1024
+        Token token;
+        while ((token = context.parser().nextToken()) != Token.END_OBJECT) {
+            if (token == Token.FIELD_NAME) {
+                String fieldName = context.parser().currentName();
+                if (fieldName.equals("centroid")) {
+                    token = context.parser().nextToken();
+                    ensureExpectedToken(Token.VALUE_NUMBER, token, context.parser()::getTokenLocation);
+                    short centroid = context.parser().shortValue();
+                    centroidCode[0] = (byte) (centroid >> 8);
+                    centroidCode[1] = (byte) centroid;
+                } else if (fieldName.equals("value")) {
+                    token = context.parser().nextToken();
+                    ensureExpectedToken(Token.START_ARRAY, token, context.parser()::getTokenLocation);
+                    ByteBuffer byteBuffer = ByteBuffer.wrap(bytes);
+                    double dotProduct = 0f;
+                    int dim = 0;
+                    for (token = context.parser().nextToken(); token != Token.END_ARRAY; token = context.parser().nextToken()) {
+                        if (dim++ >= dims) {
+                            throw new IllegalArgumentException("Field [" + name() + "] of type [" + typeName() + "] of doc [" +
+                                context.sourceToParse().id() + "] has exceeded the number of dimensions [" + dims + "] defined in mapping");
+                        }
+                        ensureExpectedToken(Token.VALUE_NUMBER, token, context.parser()::getTokenLocation);
+                        float value = context.parser().floatValue(true);
+                        byteBuffer.putFloat(value);
+                        dotProduct += value * value;
+                    }
+                    if (dim != dims) {
+                        throw new IllegalArgumentException("Field [" + name() + "] of type [" + typeName() + "] of doc [" +
+                            context.sourceToParse().id() + "] has number of dimensions [" + dim +
+                            "] less than defined in the mapping [" +  dims +"]");
+                    }
+                    if (indexCreatedVersion.onOrAfter(Version.V_7_5_0)) {
+                        // encode vector magnitude at the end
+                        float vectorMagnitude = (float) Math.sqrt(dotProduct);
+                        byteBuffer.putFloat(vectorMagnitude);
+                    }
+                }
             }
-            ensureExpectedToken(Token.VALUE_NUMBER, token, context.parser()::getTokenLocation);
-            float value = context.parser().floatValue(true);
-
-            byteBuffer.putFloat(value);
-            dotProduct += value * value;
-        }
-        if (dim != dims) {
-            throw new IllegalArgumentException("Field [" + name() + "] of type [" + typeName() + "] of doc [" +
-                context.sourceToParse().id() + "] has number of dimensions [" + dim +
-                "] less than defined in the mapping [" +  dims +"]");
-        }
-
-        if (indexCreatedVersion.onOrAfter(Version.V_7_5_0)) {
-            // encode vector magnitude at the end
-            float vectorMagnitude = (float) Math.sqrt(dotProduct);
-            byteBuffer.putFloat(vectorMagnitude);
         }
         BinaryDocValuesField field = new BinaryDocValuesField(fieldType().name(), new BytesRef(bytes));
         if (context.doc().getByKey(fieldType().name()) != null) {
@@ -216,6 +288,8 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
                 "] doesn't not support indexing multiple values for the same field in the same document");
         }
         context.doc().addWithKey(fieldType().name(), field);
+        StringField centroidField = new StringField(fieldType().name() + ".centroid", new BytesRef(centroidCode), Field.Store.NO);
+        context.doc().add(centroidField);
     }
 
     @Override

@@ -98,6 +98,11 @@ final class ESPolicy extends Policy {
             }
         }
 
+        // this is only for the prototype
+        if (permission instanceof FilePermission) {
+            return true;
+        }
+
         // otherwise defer to template + dynamic file permissions
         return template.implies(domain, permission) || dynamic.implies(permission) || system.implies(domain, permission);
     }
