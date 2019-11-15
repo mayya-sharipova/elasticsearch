@@ -53,6 +53,10 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
     public static short MAX_DIMS_COUNT = 1024; //maximum allowed number of dimensions
     private static final byte INT_BYTES = 4;
     private static final int CENTROIDS_COUNT = 1000;
+    public static final int M = 8; // number of product quantizers
+    public static final int PRODUCT_CENTROIDS_COUNT = 256; // number of centroids in each product quantizer
+    private static final String CCFIELD = "coarse_centroid";
+    private static final String PCFIELD = "product_centroids";
 
     public static class Defaults {
         public static final MappedFieldType FIELD_TYPE = new DenseVectorFieldType();
@@ -68,8 +72,10 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
 
     public static class Builder extends FieldMapper.Builder<Builder, DenseVectorFieldMapper> {
         private int dims = 0;
-        private float[][] centroids = null;
-        private float[] centroidsSquaredMagnitudes = null;
+        private float[][] coarseCentroids = null;
+        private float[] coarseCentroidsSquaredMagnitudes = null;
+        private float[][][] productCentroids = null;
+        private float[][] productCentroidsSquaredMagnitudes = null;
 
         public Builder(String name) {
             super(name, Defaults.FIELD_TYPE, Defaults.FIELD_TYPE);
@@ -86,26 +92,47 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
         }
 
         public Builder buildCentroids() {
-            if (centroids != null) return this;
+            if (coarseCentroids != null) return this;
             AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
                 try {
-                    InputStream istream = getClass().getResourceAsStream("/centroids.txt");
+                    InputStream istream = getClass().getResourceAsStream("/coarse_centroids.txt");
                     byte[] bytes = istream.readAllBytes();
                     ByteBuffer buffer = ByteBuffer.wrap(bytes);
                     buffer.order(ByteOrder.LITTLE_ENDIAN);
                     FloatBuffer fbuffer = buffer.asFloatBuffer();
-                    centroids = new float[CENTROIDS_COUNT][dims];
-                    centroidsSquaredMagnitudes = new float[CENTROIDS_COUNT];
+                    coarseCentroids = new float[CENTROIDS_COUNT][dims];
+                    coarseCentroidsSquaredMagnitudes = new float[CENTROIDS_COUNT];
                     for (int i = 0; i < CENTROIDS_COUNT; i++) {
-                        centroidsSquaredMagnitudes[i] = 0;
+                        coarseCentroidsSquaredMagnitudes[i] = 0;
                         for (int dim = 0; dim < dims; dim++) {
-                            centroids[i][dim] = fbuffer.get();
-                            centroidsSquaredMagnitudes[i] += centroids[i][dim] * centroids[i][dim];
+                            coarseCentroids[i][dim] = fbuffer.get();
+                            coarseCentroidsSquaredMagnitudes[i] += coarseCentroids[i][dim] * coarseCentroids[i][dim];
                         }
                     }
                     istream.close();
                 } catch (IOException e) {
-                    throw new MapperParsingException("Could not load centroids");
+                    throw new MapperParsingException("Could not load coarse centroids");
+                }
+                try {
+                    InputStream istream = getClass().getResourceAsStream("/product_centroids.txt");
+                    byte[] bytes = istream.readAllBytes();
+                    ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                    buffer.order(ByteOrder.LITTLE_ENDIAN);
+                    FloatBuffer fbuffer = buffer.asFloatBuffer();
+                    final int pdims = dims/M;
+                    productCentroids = new float[M][PRODUCT_CENTROIDS_COUNT][pdims];
+                    productCentroidsSquaredMagnitudes = new float[M][PRODUCT_CENTROIDS_COUNT];
+                    for (int m = 0; m < M; m++) {
+                        for (int c = 0; c < PRODUCT_CENTROIDS_COUNT; c++) {
+                            for (int dim = 0; dim < pdims; dim++) {
+                                productCentroids[m][c][dim] = fbuffer.get();
+                                productCentroidsSquaredMagnitudes[m][c] += productCentroids[m][c][dim] * productCentroids[m][c][dim];
+                            }
+                        }
+                    }
+                    istream.close();
+                } catch (IOException e) {
+                    throw new MapperParsingException("Could not load product centroids");
                 }
                 return null;
             });
@@ -116,8 +143,10 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
         protected void setupFieldType(BuilderContext context) {
             super.setupFieldType(context);
             fieldType().setDims(dims);
-            fieldType().setCentroids(centroids);
-            fieldType().setCentroidsSquaredMagnitudes(centroidsSquaredMagnitudes);
+            fieldType().setCoarseCentroids(coarseCentroids);
+            fieldType().setCoarseCentroidsSquaredMagnitudes(coarseCentroidsSquaredMagnitudes);
+            fieldType().setProductCentroids(productCentroids);
+            fieldType().setProductCentroidsSquaredMagnitudes(productCentroidsSquaredMagnitudes);
         }
 
         @Override
@@ -151,8 +180,10 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
 
     public static final class DenseVectorFieldType extends MappedFieldType {
         private int dims;
-        private float[][] centroids;
-        private float[] centroidsSquaredMagnitudes;
+        private float[][] coarseCentroids;
+        private float[] coarseCentroidsSquaredMagnitudes;
+        private float[][][] productCentroids;
+        private float[][] productCentroidsSquaredMagnitudes;
 
         public DenseVectorFieldType() {}
 
@@ -164,7 +195,7 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
             return new DenseVectorFieldType(this);
         }
 
-        int dims() {
+        public int dims() {
             return dims;
         }
 
@@ -199,20 +230,44 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
                 "Field [" + name() + "] of type [" + typeName() + "] doesn't support queries");
         }
 
-        public void setCentroids(float[][] centroids) {
-            this.centroids = centroids;
+        public void setCoarseCentroids(float[][] coarseCentroids) {
+            this.coarseCentroids = coarseCentroids;
         }
 
-        public float[][] getCentroids() {
-            return centroids;
+        public float[][] getCoarseCentroids() {
+            return coarseCentroids;
         }
 
-        public void setCentroidsSquaredMagnitudes(float[] centroidsSquaredMagnitudes) {
-            this.centroidsSquaredMagnitudes = centroidsSquaredMagnitudes;
+        public void setCoarseCentroidsSquaredMagnitudes(float[] coarseCentroidsSquaredMagnitudes) {
+            this.coarseCentroidsSquaredMagnitudes = coarseCentroidsSquaredMagnitudes;
         }
 
-        public float[] getCentroidsSquaredMagnitudes() {
-            return centroidsSquaredMagnitudes;
+        public float[] getCoarseCentroidsSquaredMagnitudes() {
+            return coarseCentroidsSquaredMagnitudes;
+        }
+
+        public void setProductCentroidsSquaredMagnitudes(float[][] productCentroidsSquaredMagnitudes) {
+            this.productCentroidsSquaredMagnitudes = productCentroidsSquaredMagnitudes;
+        }
+
+        public float[][] getProductCentroidsSquaredMagnitudes() {
+            return productCentroidsSquaredMagnitudes;
+        }
+
+        public void setProductCentroids(float[][][] productCentroids) {
+            this.productCentroids = productCentroids;
+        }
+
+        public float[][][] getProductCentroids() {
+            return productCentroids;
+        }
+
+        public String getCCFieldName() {
+            return name() + "." + CCFIELD;
+        }
+
+        public String getPCFieldName() {
+            return name() + "." + PCFIELD;
         }
     }
 
@@ -243,16 +298,26 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
         // this code is here and not int the VectorEncoderDecoder so not to create extra arrays
         byte[] bytes = indexCreatedVersion.onOrAfter(Version.V_7_5_0) ? new byte[dims * INT_BYTES + INT_BYTES] : new byte[dims * INT_BYTES];
         byte[] centroidCode = new byte[2]; // 2 bytes for centroid, max centroid value -- 1024
+        byte[] pCentroidsCodes = new byte[M]; // 1 byte for product centroid, max product centroid value -- 256
         Token token;
         while ((token = context.parser().nextToken()) != Token.END_OBJECT) {
             if (token == Token.FIELD_NAME) {
                 String fieldName = context.parser().currentName();
-                if (fieldName.equals("centroid")) {
+                if (fieldName.equals(CCFIELD)) {
                     token = context.parser().nextToken();
                     ensureExpectedToken(Token.VALUE_NUMBER, token, context.parser()::getTokenLocation);
                     short centroid = context.parser().shortValue();
                     centroidCode[0] = (byte) (centroid >> 8);
                     centroidCode[1] = (byte) centroid;
+                } else if (fieldName.equals(PCFIELD)) {
+                    token = context.parser().nextToken();
+                    ensureExpectedToken(Token.START_ARRAY, token, context.parser()::getTokenLocation);
+                    int i = 0;
+                    for (token = context.parser().nextToken(); token != Token.END_ARRAY; token = context.parser().nextToken()) {
+                        ensureExpectedToken(Token.VALUE_NUMBER, token, context.parser()::getTokenLocation);
+                        short pCentroid = context.parser().shortValue();
+                        pCentroidsCodes[i++] = (byte) pCentroid;
+                    }
                 } else if (fieldName.equals("value")) {
                     token = context.parser().nextToken();
                     ensureExpectedToken(Token.START_ARRAY, token, context.parser()::getTokenLocation);
@@ -288,8 +353,11 @@ public class DenseVectorFieldMapper extends FieldMapper implements ArrayValueMap
                 "] doesn't not support indexing multiple values for the same field in the same document");
         }
         context.doc().addWithKey(fieldType().name(), field);
-        StringField centroidField = new StringField(fieldType().name() + ".centroid", new BytesRef(centroidCode), Field.Store.NO);
+        StringField centroidField = new StringField(fieldType().getCCFieldName(), new BytesRef(centroidCode), Field.Store.NO);
         context.doc().add(centroidField);
+        BinaryDocValuesField pCentroidsField = new BinaryDocValuesField(fieldType().getPCFieldName(), new BytesRef(pCentroidsCodes));
+        context.doc().add(pCentroidsField);
+
     }
 
     @Override

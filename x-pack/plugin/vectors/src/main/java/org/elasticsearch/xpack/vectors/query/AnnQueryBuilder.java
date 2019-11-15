@@ -7,6 +7,8 @@
 package org.elasticsearch.xpack.vectors.query;
 
 
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.ParseField;
@@ -17,7 +19,6 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.query.AbstractQueryBuilder;
-import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.xpack.vectors.mapper.DenseVectorFieldMapper;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.PriorityQueue;
 
 import static org.elasticsearch.common.xcontent.ConstructingObjectParser.constructorArg;
 
@@ -124,6 +126,8 @@ public class AnnQueryBuilder extends AbstractQueryBuilder<AnnQueryBuilder> {
             throw new IllegalArgumentException("Field [" + field +
                 "] is not of the expected type of [" + DenseVectorFieldMapper.CONTENT_TYPE + "]");
         }
+        DenseVectorFieldType dfieldType = (DenseVectorFieldType) fieldType;
+
         // compute numberOfProbes of centroids that are closest to the query
         // we use euclidean distance for this
         // sqrt((d1-q1)^2 + (d2-q2)^2 ...) can be converted to sqrt(||d||^2 + ||q||^2 - 2dq)
@@ -131,13 +135,12 @@ public class AnnQueryBuilder extends AbstractQueryBuilder<AnnQueryBuilder> {
         // since we are interested only in ranking and we don't need precise scores
         // sqrt(||d||^2 + ||q||^2 - 2dq) can be converted to ||d||^2 - 2dq
 
-        float[][] centroids = ((DenseVectorFieldType)fieldType).getCentroids();
-        float[] centroidsSquaredMagnitudes = ((DenseVectorFieldType)fieldType).getCentroidsSquaredMagnitudes();
+        float[][] centroids = dfieldType.getCoarseCentroids();
+        float[] centroidsSquaredMagnitudes = dfieldType.getCoarseCentroidsSquaredMagnitudes();
         int dims = queryVector.length;
 
-        float[] topMinDistances = new float[numberOfProbes];
-        short[] topMinIndexes = new short[numberOfProbes];
-        Arrays.fill(topMinDistances, Float.MAX_VALUE);
+        PriorityQueue<Centroid> closestCentroids = new PriorityQueue<>(numberOfProbes,
+            (first, second) -> -Float.compare(first.distance, second.distance));
 
         for (short i = 0; i < centroids.length; i++){
             float dotProduct = 0;
@@ -145,48 +148,59 @@ public class AnnQueryBuilder extends AbstractQueryBuilder<AnnQueryBuilder> {
                 dotProduct += queryVector[dim] * centroids[i][dim];
             }
             float result = centroidsSquaredMagnitudes[i] - 2 * dotProduct;
-            updateTop(topMinDistances, topMinIndexes, result, i);
+            updateTop(closestCentroids, new Centroid(i, result));
         }
 
-        // get codes for these centroids
+        int cidx = 0;
+        float[][] queryResiduals = new float[numberOfProbes][dims]; // query residuals
+        for (Centroid centroid : closestCentroids) {
+            float[] centroidVector = centroids[centroid.index];
+            for (int dim = 0; dim < dims; dim++) {
+                queryResiduals[cidx][dim] = queryVector[dim] - centroidVector[dim];
+            }
+            cidx++;
+        }
+
         BytesRef[] centroidCodes = new BytesRef[numberOfProbes];
-        for (int i = 0; i < numberOfProbes; i++) {
+        cidx = 0;
+        for (Centroid centroid : closestCentroids) {
+            short centroidIndex = centroid.index;
             byte[] centroidCode = new byte[2];
-            centroidCode[0] = (byte) (topMinIndexes[i] >> 8);
-            centroidCode[1] = (byte) topMinIndexes[i];
-            centroidCodes[i] = new BytesRef(centroidCode);
+            centroidCode[0] = (byte) (centroidIndex >> 8);
+            centroidCode[1] = (byte) centroidIndex;
+            centroidCodes[cidx++] = new BytesRef(centroidCode);
         }
 
-        String centroidFieldName = fieldType.name() + ".centroid";
-        BoolQueryBuilder centroidShouldQuery = new BoolQueryBuilder();
+        cidx = 0;
+        BooleanQuery.Builder booleanQueryBuilder = new BooleanQuery.Builder();
         for (BytesRef centroidCode : centroidCodes) {
-            BoolQueryBuilder filterCentroid = new BoolQueryBuilder();
-            filterCentroid.filter(new TermQueryBuilder(centroidFieldName, centroidCode));
-            centroidShouldQuery.should(filterCentroid);
+            Query coarseQuery = new TermQueryBuilder(dfieldType.getCCFieldName(), centroidCode).toQuery(context);
+            AnnPQQuery pqQuery = new AnnPQQuery(dfieldType, queryResiduals[cidx++], coarseQuery);
+            booleanQueryBuilder.add(new BooleanClause(pqQuery, BooleanClause.Occur.SHOULD));
         }
-        centroidShouldQuery.minimumShouldMatch(1);
-        return centroidShouldQuery.toQuery(context);
+        booleanQueryBuilder.setMinimumNumberShouldMatch(1);
+        BooleanQuery booleanQuery = booleanQueryBuilder.build();
+        return booleanQuery;
     }
 
-    private static void updateTop(float[] minDistances, short[] minIndexes, float newDistance, short newIndex) {
-        int n = minDistances.length;
-        if (newDistance >= minDistances[n-1]){
-            return;
-        } else {
-            minDistances[n-1] = newDistance;
-            minIndexes[n-1] = newIndex;
+    private static class Centroid {
+        public short index;
+        public float distance;
+
+        public Centroid(short index, float distance) {
+            this.index = index;
+            this.distance = distance;
         }
-        // pun newDistance and newIndex in the right place
-        for (int j = n - 2; j >= 0 ; j--) {
-            if (minDistances[j] > minDistances[j + 1]) {
-                float tmp = minDistances[j];
-                minDistances[j] = minDistances[j+1];
-                minDistances[j+1] = tmp;
-                short tmpIndex = minIndexes[j];
-                minIndexes[j] = minIndexes[j+1];
-                minIndexes[j+1] = tmpIndex;
-            } else {
-                break;
+    }
+
+    private void updateTop(PriorityQueue<Centroid> centroids, Centroid newCentroid) {
+        if (centroids.size() < numberOfProbes) {
+            centroids.offer(newCentroid);
+        } else {
+            Centroid bottom = centroids.peek();
+            if (newCentroid.distance < bottom.distance) {
+                centroids.poll();
+                centroids.offer(newCentroid);
             }
         }
     }
