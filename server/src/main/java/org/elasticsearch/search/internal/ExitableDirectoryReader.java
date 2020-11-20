@@ -46,13 +46,6 @@ class ExitableDirectoryReader extends FilterDirectoryReader {
      * and if so use it to check if the query is cancelled or timed-out.
      */
     interface QueryCancellation {
-
-        /**
-         * Used to prevent unnecessary checks for cancellation
-         * @return true if query cancellation is enabled
-         */
-        boolean isEnabled();
-
         /**
          * Call to check if the query is cancelled or timed-out.
          * If so a {@link RuntimeException} is thrown
@@ -96,7 +89,7 @@ class ExitableDirectoryReader extends FilterDirectoryReader {
             if (pointValues == null) {
                 return null;
             }
-            return queryCancellation.isEnabled() ? new ExitablePointValues(pointValues, queryCancellation) : pointValues;
+            return new ExitablePointValues(pointValues, queryCancellation);
         }
 
         @Override
@@ -108,7 +101,7 @@ class ExitableDirectoryReader extends FilterDirectoryReader {
             // If we have a suggest CompletionQuery then the CompletionWeight#bulkScorer() will check that
             // the terms are instanceof CompletionTerms (not generic FilterTerms) and will throw an exception
             // if that's not the case.
-            return (queryCancellation.isEnabled() && terms instanceof CompletionTerms == false) ?
+            return (terms instanceof CompletionTerms == false) ?
                     new ExitableTerms(terms, queryCancellation) : terms;
         }
 

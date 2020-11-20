@@ -38,7 +38,6 @@ import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.action.search.SearchShardTask;
-import org.elasticsearch.common.Booleans;
 import org.elasticsearch.common.lucene.Lucene;
 import org.elasticsearch.common.lucene.search.TopDocsAndMaxScore;
 import org.elasticsearch.common.util.concurrent.EWMATrackingEsThreadPoolExecutor;
@@ -80,8 +79,6 @@ import static org.elasticsearch.search.query.TopDocsCollectorContext.createTopDo
  */
 public class QueryPhase {
     private static final Logger LOGGER = LogManager.getLogger(QueryPhase.class);
-    // TODO: remove this property in 8.0
-    public static final boolean SYS_PROP_REWRITE_SORT = Booleans.parseBoolean(System.getProperty("es.search.rewrite_sort", "true"));
 
     private final AggregationPhase aggregationPhase;
     private final SuggestPhase suggestPhase;
@@ -224,10 +221,7 @@ public class QueryPhase {
                 hasFilterCollector = true;
             }
 
-            if (SYS_PROP_REWRITE_SORT) {
-                optimizeNumericSort(searchContext, searcher.getIndexReader());
-                // TODO: sort leaves according to search sort when Lucene supports sharing bottom sort value between collectors
-            }
+            optimizeNumericSort(searchContext, searcher.getIndexReader());
 
             boolean timeoutSet = scrollContext == null && searchContext.timeout() != null &&
                 searchContext.timeout().equals(SearchService.NO_TIMEOUT) == false;
@@ -341,6 +335,7 @@ public class QueryPhase {
         sortField.setCanUsePoints();
         return;
     }
+
 
     /**
      * Returns true if the provided <code>query</code> returns docs in index order (internal doc ids).

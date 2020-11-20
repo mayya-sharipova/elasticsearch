@@ -114,14 +114,14 @@ public class QueryProfilerTests extends ESTestCase {
         assertThat(breakdown.get(QueryTimingType.CREATE_WEIGHT.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.BUILD_SCORER.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.NEXT_DOC.toString()), greaterThan(0L));
-        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString()), equalTo(0L));
+        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.SCORE.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.MATCH.toString()), equalTo(0L));
 
         assertThat(breakdown.get(QueryTimingType.CREATE_WEIGHT.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.BUILD_SCORER.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.NEXT_DOC.toString() + "_count"), greaterThan(0L));
-        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString() + "_count"), equalTo(0L));
+        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.SCORE.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.MATCH.toString() + "_count"), equalTo(0L));
 
@@ -140,14 +140,14 @@ public class QueryProfilerTests extends ESTestCase {
         assertThat(breakdown.get(QueryTimingType.CREATE_WEIGHT.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.BUILD_SCORER.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.NEXT_DOC.toString()), greaterThan(0L));
-        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString()), equalTo(0L));
+        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.SCORE.toString()), equalTo(0L));
         assertThat(breakdown.get(QueryTimingType.MATCH.toString()), equalTo(0L));
 
         assertThat(breakdown.get(QueryTimingType.CREATE_WEIGHT.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.BUILD_SCORER.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.NEXT_DOC.toString() + "_count"), greaterThan(0L));
-        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString() + "_count"), equalTo(0L));
+        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.SCORE.toString() + "_count"), equalTo(0L));
         assertThat(breakdown.get(QueryTimingType.MATCH.toString() + "_count"), equalTo(0L));
 
@@ -178,14 +178,14 @@ public class QueryProfilerTests extends ESTestCase {
         assertThat(breakdown.get(QueryTimingType.CREATE_WEIGHT.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.BUILD_SCORER.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.NEXT_DOC.toString()), greaterThan(0L));
-        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString()), equalTo(0L));
+        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString()), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.SCORE.toString()), equalTo(0L));
         assertThat(breakdown.get(QueryTimingType.MATCH.toString()), greaterThan(0L));
 
         assertThat(breakdown.get(QueryTimingType.CREATE_WEIGHT.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.BUILD_SCORER.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.NEXT_DOC.toString() + "_count"), greaterThan(0L));
-        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString() + "_count"), equalTo(0L));
+        assertThat(breakdown.get(QueryTimingType.ADVANCE.toString() + "_count"), greaterThan(0L));
         assertThat(breakdown.get(QueryTimingType.SCORE.toString() + "_count"), equalTo(0L));
         assertThat(breakdown.get(QueryTimingType.MATCH.toString() + "_count"), greaterThan(0L));
 

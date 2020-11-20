@@ -78,7 +78,6 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 
 import static org.elasticsearch.search.internal.ContextIndexSearcher.intersectScorerAndBitSet;
-import static org.elasticsearch.search.internal.ExitableDirectoryReader.ExitableLeafReader;
 import static org.elasticsearch.search.internal.ExitableDirectoryReader.ExitablePointValues;
 import static org.elasticsearch.search.internal.ExitableDirectoryReader.ExitableTerms;
 import static org.hamcrest.Matchers.equalTo;
@@ -250,11 +249,6 @@ public class ContextIndexSearcherTests extends ESTestCase {
         }
         // Assert wrapping
         assertEquals(ExitableDirectoryReader.class, searcher.getIndexReader().getClass());
-        for (LeafReaderContext lrc : searcher.getIndexReader().leaves()) {
-            assertEquals(ExitableLeafReader.class, lrc.reader().getClass());
-            assertNotEquals(ExitableTerms.class, lrc.reader().terms("foo").getClass());
-            assertNotEquals(ExitablePointValues.class, lrc.reader().getPointValues("point").getClass());
-        }
         searcher.addQueryCancellation(() -> {});
         for (LeafReaderContext lrc : searcher.getIndexReader().leaves()) {
             assertEquals(ExitableTerms.class, lrc.reader().terms("foo").getClass());

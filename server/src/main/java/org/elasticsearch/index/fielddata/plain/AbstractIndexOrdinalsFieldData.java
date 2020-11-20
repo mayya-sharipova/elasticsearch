@@ -20,7 +20,7 @@ package org.elasticsearch.index.fielddata.plain;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.SortedSetDocValues;
@@ -101,7 +101,7 @@ public abstract class AbstractIndexOrdinalsFieldData implements IndexOrdinalsFie
     }
 
     @Override
-    public IndexOrdinalsFieldData loadGlobal(DirectoryReader indexReader) {
+    public IndexOrdinalsFieldData loadGlobal(IndexReader indexReader) {
         IndexOrdinalsFieldData fieldData = loadGlobalInternal(indexReader);
         if (fieldData instanceof GlobalOrdinalsIndexFieldData) {
             // we create a new instance of the cached value for each consumer in order
@@ -112,7 +112,7 @@ public abstract class AbstractIndexOrdinalsFieldData implements IndexOrdinalsFie
         }
     }
 
-    private IndexOrdinalsFieldData loadGlobalInternal(DirectoryReader indexReader) {
+    private IndexOrdinalsFieldData loadGlobalInternal(IndexReader indexReader) {
         if (indexReader.leaves().size() <= 1) {
             // ordinals are already global
             return this;
@@ -147,7 +147,7 @@ public abstract class AbstractIndexOrdinalsFieldData implements IndexOrdinalsFie
     }
 
     @Override
-    public IndexOrdinalsFieldData loadGlobalDirect(DirectoryReader indexReader) throws Exception {
+    public IndexOrdinalsFieldData loadGlobalDirect(IndexReader indexReader) throws Exception {
         return GlobalOrdinalsBuilder.build(
             indexReader,
             this,

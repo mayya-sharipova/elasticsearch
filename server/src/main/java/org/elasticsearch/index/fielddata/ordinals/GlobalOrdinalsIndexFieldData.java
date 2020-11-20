@@ -18,7 +18,7 @@
  */
 package org.elasticsearch.index.fielddata.ordinals;
 
-import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.SortedSetDocValues;
@@ -46,8 +46,8 @@ import java.util.function.Function;
 
 /**
  * Concrete implementation of {@link IndexOrdinalsFieldData} for global ordinals.
- * A single instance of this class should be used to cache global ordinals per {@link DirectoryReader}.
- * However {@link #loadGlobal(DirectoryReader)} always creates a new instance of {@link Consumer} from the cached
+ * A single instance of this class should be used to cache global ordinals per {@link IndexReader}.
+ * However {@link #loadGlobal(IndexReader)} always creates a new instance of {@link Consumer} from the cached
  * value in order to reuse the segment's {@link TermsEnum} that are needed to retrieve terms from global ordinals.
  * Each instance of {@link Consumer} uses a new set of {@link TermsEnum} that can be reused during the collection,
  * this is done to avoid creating all segment's {@link TermsEnum} each time we want to access the values of a single
@@ -77,7 +77,7 @@ public final class GlobalOrdinalsIndexFieldData implements IndexOrdinalsFieldDat
         this.scriptFunction = scriptFunction;
     }
 
-    public IndexOrdinalsFieldData newConsumer(DirectoryReader source) {
+    public IndexOrdinalsFieldData newConsumer(IndexReader source) {
         return new Consumer(source);
     }
 
@@ -87,12 +87,12 @@ public final class GlobalOrdinalsIndexFieldData implements IndexOrdinalsFieldDat
     }
 
     @Override
-    public IndexOrdinalsFieldData loadGlobal(DirectoryReader indexReader) {
+    public IndexOrdinalsFieldData loadGlobal(IndexReader indexReader) {
         return this;
     }
 
     @Override
-    public IndexOrdinalsFieldData loadGlobalDirect(DirectoryReader indexReader) throws Exception {
+    public IndexOrdinalsFieldData loadGlobalDirect(IndexReader indexReader) throws Exception {
         return this;
     }
 
@@ -148,10 +148,10 @@ public final class GlobalOrdinalsIndexFieldData implements IndexOrdinalsFieldDat
      * segment once and use them to provide a single lookup per segment.
      */
     public class Consumer implements IndexOrdinalsFieldData, Accountable {
-        private final DirectoryReader source;
+        private final IndexReader source;
         private TermsEnum[] lookups;
 
-        Consumer(DirectoryReader source) {
+        Consumer(IndexReader source) {
             this.source = source;
         }
 
@@ -178,12 +178,12 @@ public final class GlobalOrdinalsIndexFieldData implements IndexOrdinalsFieldDat
         }
 
         @Override
-        public IndexOrdinalsFieldData loadGlobal(DirectoryReader indexReader) {
+        public IndexOrdinalsFieldData loadGlobal(IndexReader indexReader) {
             return this;
         }
 
         @Override
-        public IndexOrdinalsFieldData loadGlobalDirect(DirectoryReader indexReader) throws Exception {
+        public IndexOrdinalsFieldData loadGlobalDirect(IndexReader indexReader) throws Exception {
             return this;
         }
 

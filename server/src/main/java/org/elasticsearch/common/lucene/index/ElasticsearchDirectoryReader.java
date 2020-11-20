@@ -93,7 +93,7 @@ public final class ElasticsearchDirectoryReader extends FilterDirectoryReader {
      *     {@link ElasticsearchDirectoryReader} in it's hierarchy
      */
     @SuppressForbidden(reason = "This is the only sane way to add a ReaderClosedListener")
-    public static void addReaderCloseListener(DirectoryReader reader, IndexReader.ClosedListener listener) {
+    public static void addReaderCloseListener(IndexReader reader, IndexReader.ClosedListener listener) {
         ElasticsearchDirectoryReader elasticsearchDirectoryReader = getElasticsearchDirectoryReader(reader);
         if (elasticsearchDirectoryReader == null) {
             throw new IllegalArgumentException(
@@ -112,7 +112,7 @@ public final class ElasticsearchDirectoryReader extends FilterDirectoryReader {
      * {@link ElasticsearchDirectoryReader} instance is found or {@code null}
      * if no instance is found.
      */
-    public static ElasticsearchDirectoryReader getElasticsearchDirectoryReader(DirectoryReader reader) {
+    public static ElasticsearchDirectoryReader getElasticsearchDirectoryReader(IndexReader reader) {
         if (reader instanceof FilterDirectoryReader) {
             if (reader instanceof ElasticsearchDirectoryReader) {
                 return (ElasticsearchDirectoryReader) reader;
@@ -123,6 +123,8 @@ public final class ElasticsearchDirectoryReader extends FilterDirectoryReader {
                 // may be instance of ElasticsearchLeafReader. This can cause us to miss the shardId.
                 return getElasticsearchDirectoryReader(((FilterDirectoryReader) reader).getDelegate());
             }
+        } else if (reader instanceof FilterMultiReader) {
+            return getElasticsearchDirectoryReader(((FilterMultiReader) reader).getOriginal());
         }
         return null;
     }

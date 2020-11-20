@@ -281,7 +281,7 @@ public class DefaultSearchContextTests extends ESTestCase {
             ReaderContext readerContext = new ReaderContext(
                 newContextId(), indexService, indexShard, searcherSupplier, randomNonNegativeLong(), false);
             DefaultSearchContext context = new DefaultSearchContext(readerContext, shardSearchRequest, target, null,
-                bigArrays, null, timeout, null, false);
+                bigArrays, null, timeout, null, true);
 
             assertThat(context.searcher().hasCancellations(), is(false));
             context.searcher().addQueryCancellation(() -> {});

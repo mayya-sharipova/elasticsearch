@@ -19,7 +19,6 @@
 
 package org.elasticsearch.index.fielddata;
 
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.OrdinalMap;
 
@@ -34,13 +33,13 @@ public interface IndexOrdinalsFieldData extends IndexFieldData.Global<LeafOrdina
      * potentially from a cache.
      */
     @Override
-    IndexOrdinalsFieldData loadGlobal(DirectoryReader indexReader);
+    IndexOrdinalsFieldData loadGlobal(IndexReader indexReader);
 
     /**
      * Load a global view of the ordinals for the given {@link IndexReader}.
      */
     @Override
-    IndexOrdinalsFieldData loadGlobalDirect(DirectoryReader indexReader) throws Exception;
+    IndexOrdinalsFieldData loadGlobalDirect(IndexReader indexReader) throws Exception;
 
     /**
      * Returns the underlying {@link OrdinalMap} for this fielddata
