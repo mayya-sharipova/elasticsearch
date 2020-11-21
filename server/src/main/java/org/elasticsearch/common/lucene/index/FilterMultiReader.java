@@ -23,9 +23,9 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.MultiReader;
+import org.elasticsearch.common.CheckedFunction;
 
 import java.io.IOException;
-import java.util.function.Function;
 
 /**
  * A {@link MultiReader} that reorders the leaves of the provided {@link DirectoryReader}.
@@ -33,7 +33,8 @@ import java.util.function.Function;
 public class FilterMultiReader extends MultiReader {
     private final DirectoryReader original;
 
-    public FilterMultiReader(DirectoryReader original, Function<DirectoryReader, LeafReader[]> orderLeaves) throws IOException {
+    public FilterMultiReader(DirectoryReader original,
+                             CheckedFunction<DirectoryReader, LeafReader[], IOException> orderLeaves) throws IOException {
         super(orderLeaves.apply(original));
         this.original = original;
     }

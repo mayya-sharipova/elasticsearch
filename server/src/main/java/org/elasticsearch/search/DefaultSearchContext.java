@@ -20,8 +20,10 @@
 package org.elasticsearch.search;
 
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.PointValues;
 import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.BoostQuery;
@@ -32,8 +34,8 @@ import org.apache.lucene.search.Query;
 import org.elasticsearch.action.search.SearchShardTask;
 import org.elasticsearch.action.search.SearchType;
 import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.common.CheckedFunction;
 import org.elasticsearch.common.Nullable;
-import org.elasticsearch.common.Randomness;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.util.BigArrays;
@@ -41,6 +43,8 @@ import org.elasticsearch.index.IndexService;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.cache.bitset.BitsetFilterCache;
 import org.elasticsearch.index.engine.Engine;
+import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.query.AbstractQueryBuilder;
 import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -48,6 +52,7 @@ import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.index.search.NestedHelper;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.search.aggregations.SearchContextAggregations;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.collapse.CollapseContext;
 import org.elasticsearch.search.dfs.DfsSearchResult;
 import org.elasticsearch.search.fetch.FetchPhase;
@@ -69,13 +74,16 @@ import org.elasticsearch.search.query.QueryPhaseExecutionException;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.search.rescore.RescoreContext;
 import org.elasticsearch.search.slice.SliceBuilder;
+import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.search.sort.SortAndFormats;
+import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.search.suggest.SuggestionSearchContext;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -177,8 +185,9 @@ final class DefaultSearchContext extends SearchContext {
             engineSearcher.getSimilarity(),
             engineSearcher.getQueryCache(),
             engineSearcher.getQueryCachingPolicy(),
-            lowLevelCancellation,
-            sortLeaves());
+            // no matter what lowLevelCancellation is
+            true,
+            createLeafSorter(engineSearcher.getIndexReader(), indexService.mapperService(), request.source()));
         releasables.addAll(List.of(engineSearcher, searcher));
 
         this.relativeTimeSupplier = relativeTimeSupplier;
@@ -194,11 +203,48 @@ final class DefaultSearchContext extends SearchContext {
         this.lowLevelCancellation = lowLevelCancellation;
     }
 
-    private Function<DirectoryReader, LeafReader[]> sortLeaves() {
-        return (dir) -> {
-            List<LeafReaderContext> lst = new ArrayList<>(dir.leaves());
-            Collections.shuffle(lst, Randomness.get());
-            return lst.stream()
+    private static CheckedFunction<DirectoryReader, LeafReader[], IOException> createLeafSorter(IndexReader dirReader,
+                                                                                                MapperService mapperService,
+                                                                                                SearchSourceBuilder source) {
+        if (dirReader.leaves().size() == 1) {
+            return null;
+        }
+        if (source == null) {
+            return null;
+        }
+        FieldSortBuilder primarySort = FieldSortBuilder.getPrimaryFieldSortOrNull(source);
+        if (primarySort == null) {
+            return null;
+        }
+        MappedFieldType fieldType = mapperService.fieldType(primarySort.getFieldName());
+        if (fieldType == null) {
+            return null;
+        }
+        Function<byte[], Number> pointReader = fieldType.pointReaderIfPossible();
+        if (pointReader == null) {
+            return null;
+        }
+        return dir -> {
+            LeafReaderContext[] newLeaves = new LeafReaderContext[dir.leaves().size()];
+            double[] sortValues = new double[dir.leaves().size()];
+            double missingValue = primarySort.order() == SortOrder.DESC ? Double.MIN_VALUE : Double.MAX_VALUE;
+            for (LeafReaderContext ctx : dir.leaves()) {
+                PointValues values = ctx.reader().getPointValues(fieldType.name());
+                if (values != null) {
+                    byte[] sortValue = primarySort.order() == SortOrder.DESC ? values.getMaxPackedValue(): values.getMinPackedValue();
+                    sortValues[ctx.ord] = pointReader.apply(sortValue).doubleValue();
+                } else {
+                    sortValues[ctx.ord] = missingValue;
+                }
+                newLeaves[ctx.ord] = ctx;
+            }
+            Comparator<LeafReaderContext> comparator = Comparator.comparingDouble(a -> sortValues[a.ord]);
+            if (primarySort.order() == SortOrder.DESC) {
+                comparator = comparator.reversed();
+            }
+            // we need a stable sort to ensure that search phases use the same ordering.
+            Arrays.sort(newLeaves, comparator);
+            return Arrays.stream(newLeaves)
                 .map(LeafReaderContext::reader)
                 .toArray(LeafReader[]::new);
         };

@@ -22,7 +22,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
@@ -40,6 +39,7 @@ import org.elasticsearch.search.aggregations.support.ValuesSourceType;
 
 import java.io.IOException;
 import java.util.function.Function;
+import java.util.function.LongUnaryOperator;
 
 public abstract class AbstractIndexOrdinalsFieldData implements IndexOrdinalsFieldData {
     private static final Logger logger = LogManager.getLogger(AbstractBinaryDVLeafFieldData.class);
@@ -75,8 +75,9 @@ public abstract class AbstractIndexOrdinalsFieldData implements IndexOrdinalsFie
     }
 
     @Override
-    public OrdinalMap getOrdinalMap() {
-        return null;
+    public Function<LeafReaderContext, LongUnaryOperator> getGlobalOrdinals() {
+        // segments and global ordinals are the same
+        return c -> LongUnaryOperator.identity();
     }
 
     @Override

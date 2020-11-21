@@ -274,8 +274,12 @@ public class QueryPhase {
         }
     }
 
-    private static boolean searchWithCollector(SearchContext searchContext, ContextIndexSearcher searcher, Query query,
-            LinkedList<QueryCollectorContext> collectors, boolean hasFilterCollector, boolean timeoutSet) throws IOException {
+    private static boolean searchWithCollector(SearchContext searchContext,
+                                               ContextIndexSearcher searcher,
+                                               Query query,
+                                               LinkedList<QueryCollectorContext> collectors,
+                                               boolean hasFilterCollector,
+                                               boolean timeoutSet) throws IOException {
         // create the top docs collector last when the other collectors are known
         final TopDocsCollectorContext topDocsFactory = createTopDocsCollectorContext(searchContext, hasFilterCollector);
         // add the top docs collector, the first collector context in the chain
