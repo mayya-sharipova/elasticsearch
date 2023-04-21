@@ -145,11 +145,21 @@ public class SynonymTokenFilterFactory extends AbstractTokenFilterFactory {
                 sb.append(line).append(System.lineSeparator());
             }
             return new ReaderWithOrigin(new StringReader(sb.toString()), "'" + name() + "' analyzer settings");
+        } else if (settings.get("synonyms_sets") != null) {
+            if (analysisMode != AnalysisMode.SEARCH_TIME) {
+                throw new IllegalArgumentException("Can't apply [synonyms_set]!" +
+                    "Loading synonyms from an index is supported only for search time synonyms!");
+            }
+            // TODO: load synonyms sets from index
+            // Create if it doesn't exist
+            // Register through IndexingOperationListener
+            return null;
         } else if (settings.get("synonyms_path") != null) {
             String synonyms_path = settings.get("synonyms_path", null);
             return new ReaderWithOrigin(Analysis.getReaderFromFile(env, synonyms_path, "synonyms_path"), synonyms_path);
+
         } else {
-            throw new IllegalArgumentException("synonym requires either `synonyms` or `synonyms_path` to be configured");
+            throw new IllegalArgumentException("synonym requires either `synonyms`, `synonyms_set`, `synonyms_path` to be configured");
         }
     }
 

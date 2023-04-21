@@ -1,0 +1,66 @@
+/*
+ * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+ * or more contributor license agreements. Licensed under the Elastic License
+ * 2.0 and the Server Side Public License, v 1; you may not use this file except
+ * in compliance with, at your election, the Elastic License 2.0 or the Server
+ * Side Public License, v 1.
+ */
+
+package org.elasticsearch.analysis.common.synonyms;
+
+import org.elasticsearch.Version;
+import org.elasticsearch.cluster.metadata.IndexMetadata;
+import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.indices.SystemIndexDescriptor;
+import org.elasticsearch.xcontent.XContentBuilder;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+
+import static org.elasticsearch.index.mapper.MapperService.SINGLE_MAPPING_NAME;
+import static org.elasticsearch.xcontent.XContentFactory.jsonBuilder;
+
+public class SynonymsManagementService {
+    public static final String SYNONYMS_INDEX = ".synonyms";
+    public static final String SYNONYMS_ORIGIN = "synonyms";
+
+    public static SystemIndexDescriptor getSystemIndexDescriptor() {
+        return SystemIndexDescriptor.builder()
+            .setIndexPattern(SYNONYMS_INDEX + "*")
+            .setDescription("Synonyms index for synonyms managed through APIs")
+            .setPrimaryIndex(SYNONYMS_INDEX)
+            .setMappings(mappings())
+            .setSettings(settings())
+            .setVersionMetaKey("version")
+            .setOrigin(SYNONYMS_ORIGIN)
+            .build();
+    }
+
+    private static XContentBuilder mappings() {
+        try {
+            XContentBuilder builder = jsonBuilder()
+                .startObject()
+                .startObject(SINGLE_MAPPING_NAME)
+                .startObject("_meta")
+                .field("version", Version.CURRENT)
+                .endObject()
+                .field("dynamic", "strict")
+                .startObject("properties")
+                //TODO: define document fields
+                .endObject()
+                .endObject()
+                .endObject();
+            return builder;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to build mappings for " + SYNONYMS_INDEX, e);
+        }
+    }
+
+    static Settings settings() {
+        return Settings.builder()
+            .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
+            .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+            .put(IndexMetadata.SETTING_AUTO_EXPAND_REPLICAS, "0-all")
+            .build();
+    }
+}
