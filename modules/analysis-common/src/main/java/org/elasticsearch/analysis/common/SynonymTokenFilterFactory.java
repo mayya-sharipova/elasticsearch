@@ -124,7 +124,7 @@ public class SynonymTokenFilterFactory extends AbstractTokenFilterFactory {
         };
     }
 
-    static Analyzer buildSynonymAnalyzer(
+    public static Analyzer buildSynonymAnalyzer(
         TokenizerFactory tokenizer,
         List<CharFilterFactory> charFilters,
         List<TokenFilterFactory> tokenFilters
