@@ -11,8 +11,8 @@ package org.elasticsearch.action.synonyms;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.HandledTransportAction;
-import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.index.analysis.AnalysisRegistry;
 import org.elasticsearch.synonyms.SynonymsManagementAPIService;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.transport.TransportService;
@@ -22,10 +22,13 @@ public class TransportGetSynonymsSetsAction extends HandledTransportAction<GetSy
     private final SynonymsManagementAPIService synonymsManagementAPIService;
 
     @Inject
-    public TransportGetSynonymsSetsAction(TransportService transportService, ActionFilters actionFilters, Client client) {
+    public TransportGetSynonymsSetsAction(
+        TransportService transportService,
+        ActionFilters actionFilters,
+        AnalysisRegistry analysisRegistry
+    ) {
         super(GetSynonymsSetsAction.NAME, transportService, actionFilters, GetSynonymsSetsAction.Request::new);
-
-        this.synonymsManagementAPIService = new SynonymsManagementAPIService(client);
+        this.synonymsManagementAPIService = analysisRegistry.getSynonymsManagementAPIService();
     }
 
     @Override

@@ -11,6 +11,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.analysis.AnalysisRegistry;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.indices.analysis.AnalysisModule;
 import org.elasticsearch.plugins.scanners.StablePluginsRegistry;
 import org.elasticsearch.test.ESTestCase;
@@ -43,7 +44,12 @@ public class CategorizationAnalyzerTests extends ESTestCase {
     public static AnalysisRegistry buildTestAnalysisRegistry(Environment environment) throws Exception {
         CommonAnalysisPlugin commonAnalysisPlugin = new CommonAnalysisPlugin();
         MachineLearning ml = new MachineLearning(environment.settings());
-        return new AnalysisModule(environment, Arrays.asList(commonAnalysisPlugin, ml), new StablePluginsRegistry()).getAnalysisRegistry();
+        return new AnalysisModule(
+            environment,
+            new AnalysisTestsHelper.MockClient(),
+            Arrays.asList(commonAnalysisPlugin, ml),
+            new StablePluginsRegistry()
+        ).getAnalysisRegistry();
     }
 
     @Before

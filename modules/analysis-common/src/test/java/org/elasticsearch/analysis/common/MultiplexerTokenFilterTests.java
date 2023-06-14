@@ -14,6 +14,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.IndexAnalyzers;
 import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.indices.analysis.AnalysisModule;
@@ -42,6 +43,7 @@ public class MultiplexerTokenFilterTests extends ESTokenStreamTestCase {
 
         IndexAnalyzers indexAnalyzers = new AnalysisModule(
             TestEnvironment.newEnvironment(settings),
+            new AnalysisTestsHelper.MockClient(),
             Collections.singletonList(new CommonAnalysisPlugin()),
             new StablePluginsRegistry()
         ).getAnalysisRegistry().build(idxSettings);
@@ -77,6 +79,7 @@ public class MultiplexerTokenFilterTests extends ESTokenStreamTestCase {
 
         IndexAnalyzers indexAnalyzers = new AnalysisModule(
             TestEnvironment.newEnvironment(settings),
+            new AnalysisTestsHelper.MockClient(),
             Collections.singletonList(new CommonAnalysisPlugin()),
             new StablePluginsRegistry()
         ).getAnalysisRegistry().build(idxSettings);

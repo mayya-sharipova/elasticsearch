@@ -442,6 +442,7 @@ public abstract class AbstractBuilderTestCase extends ESTestCase {
             idxSettings = IndexSettingsModule.newIndexSettings(index, indexSettings, indexScopedSettings);
             AnalysisModule analysisModule = new AnalysisModule(
                 TestEnvironment.newEnvironment(nodeSettings),
+                client,
                 emptyList(),
                 new StablePluginsRegistry()
             );

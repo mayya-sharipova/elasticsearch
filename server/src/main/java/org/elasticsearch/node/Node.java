@@ -469,6 +469,7 @@ public class Node implements Closeable {
             );
             AnalysisModule analysisModule = new AnalysisModule(
                 this.environment,
+                client,
                 pluginsService.filterPlugins(AnalysisPlugin.class),
                 pluginsService.getStablePluginRegistry()
             );

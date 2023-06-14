@@ -172,9 +172,13 @@ public class CommonAnalysisPlugin extends Plugin implements AnalysisPlugin, Scri
         AllocationService allocationService
     ) {
         this.scriptServiceHolder.set(scriptService);
-        this.synonymsManagementServiceHolder.set(new SynonymsManagementAPIService(client));
         this.threadPoolHolder.set(threadPool);
         return Collections.emptyList();
+    }
+
+    @Override
+    public void setSynonymsManagementAPIService(SynonymsManagementAPIService synonymsManagementAPIService) {
+        this.synonymsManagementServiceHolder.set(synonymsManagementAPIService);
     }
 
     @Override

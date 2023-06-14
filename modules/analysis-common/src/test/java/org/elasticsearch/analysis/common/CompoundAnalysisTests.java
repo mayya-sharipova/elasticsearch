@@ -17,6 +17,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.IndexAnalyzers;
 import org.elasticsearch.index.analysis.MyFilterTokenFilterFactory;
 import org.elasticsearch.index.analysis.TokenFilterFactory;
@@ -81,12 +82,17 @@ public class CompoundAnalysisTests extends ESTestCase {
 
     private AnalysisModule createAnalysisModule(Settings settings) throws IOException {
         CommonAnalysisPlugin commonAnalysisPlugin = new CommonAnalysisPlugin();
-        return new AnalysisModule(TestEnvironment.newEnvironment(settings), Arrays.asList(commonAnalysisPlugin, new AnalysisPlugin() {
-            @Override
-            public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
-                return singletonMap("myfilter", MyFilterTokenFilterFactory::new);
-            }
-        }), new StablePluginsRegistry());
+        return new AnalysisModule(
+            TestEnvironment.newEnvironment(settings),
+            new AnalysisTestsHelper.MockClient(),
+            Arrays.asList(commonAnalysisPlugin, new AnalysisPlugin() {
+                @Override
+                public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
+                    return singletonMap("myfilter", MyFilterTokenFilterFactory::new);
+                }
+            }),
+            new StablePluginsRegistry()
+        );
     }
 
     private Settings getJsonSettings() throws IOException {

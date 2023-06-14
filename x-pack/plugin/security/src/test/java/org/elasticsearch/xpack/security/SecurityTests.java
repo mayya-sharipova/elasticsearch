@@ -340,6 +340,7 @@ public class SecurityTests extends ESTestCase {
         when(threadPool.getThreadContext()).thenReturn(threadContext);
         AnalysisRegistry emptyAnalysisRegistry = new AnalysisRegistry(
             TestEnvironment.newEnvironment(settings),
+            null,
             emptyMap(),
             emptyMap(),
             emptyMap(),

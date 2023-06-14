@@ -24,6 +24,7 @@ import org.elasticsearch.index.analysis.PreConfiguredTokenizer;
 import org.elasticsearch.index.analysis.TokenFilterFactory;
 import org.elasticsearch.index.analysis.TokenizerFactory;
 import org.elasticsearch.indices.analysis.AnalysisModule.AnalysisProvider;
+import org.elasticsearch.synonyms.SynonymsManagementAPIService;
 
 import java.io.IOException;
 import java.util.List;
@@ -133,4 +134,6 @@ public interface AnalysisPlugin {
             }
         };
     }
+
+    default void setSynonymsManagementAPIService(SynonymsManagementAPIService synonymsManagementAPIService) {}
 }

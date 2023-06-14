@@ -60,6 +60,7 @@ public class AnalysisRegistryTests extends ESTestCase {
     private static AnalysisRegistry emptyAnalysisRegistry(Settings settings) {
         return new AnalysisRegistry(
             TestEnvironment.newEnvironment(settings),
+            null,
             emptyMap(),
             emptyMap(),
             emptyMap(),
@@ -94,6 +95,7 @@ public class AnalysisRegistryTests extends ESTestCase {
         // Module loaded to register in-built normalizers for testing
         AnalysisModule module = new AnalysisModule(
             TestEnvironment.newEnvironment(settings),
+            new AnalysisTestsHelper.MockClient(),
             singletonList(new MockAnalysisPlugin()),
             new StablePluginsRegistry()
         );
@@ -261,6 +263,7 @@ public class AnalysisRegistryTests extends ESTestCase {
         };
         IndexAnalyzers indexAnalyzers = new AnalysisModule(
             TestEnvironment.newEnvironment(settings),
+            new AnalysisTestsHelper.MockClient(),
             singletonList(plugin),
             new StablePluginsRegistry()
         ).getAnalysisRegistry().build(idxSettings);
@@ -332,6 +335,7 @@ public class AnalysisRegistryTests extends ESTestCase {
         PreBuiltAnalyzerProviderFactory mock = mock(PreBuiltAnalyzerProviderFactory.class);
         AnalysisRegistry registry = new AnalysisRegistry(
             TestEnvironment.newEnvironment(settings),
+            null,
             emptyMap(),
             emptyMap(),
             emptyMap(),

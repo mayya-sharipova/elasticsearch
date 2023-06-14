@@ -13,6 +13,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.analysis.AnalysisRegistry;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.indices.analysis.AnalysisModule;
 import org.elasticsearch.plugins.scanners.StablePluginsRegistry;
 import org.elasticsearch.xpack.core.ml.job.config.CategorizationAnalyzerConfig;
@@ -32,7 +33,12 @@ public class TokenListCategorizerTests extends CategorizationTestCase {
     public static AnalysisRegistry buildTestAnalysisRegistry(Environment environment) throws Exception {
         CommonAnalysisPlugin commonAnalysisPlugin = new CommonAnalysisPlugin();
         MachineLearning ml = new MachineLearning(environment.settings());
-        return new AnalysisModule(environment, List.of(commonAnalysisPlugin, ml), new StablePluginsRegistry()).getAnalysisRegistry();
+        return new AnalysisModule(
+            environment,
+            new AnalysisTestsHelper.MockClient(),
+            List.of(commonAnalysisPlugin, ml),
+            new StablePluginsRegistry()
+        ).getAnalysisRegistry();
     }
 
     @Before

@@ -18,6 +18,7 @@ import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.AnalysisRegistry;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.IndexAnalyzers;
 import org.elasticsearch.indices.analysis.lucene.AppendTokenFilter;
 import org.elasticsearch.indices.analysis.lucene.CharSkippingTokenizer;
@@ -158,6 +159,7 @@ public class StableAnalysisPluginsNoSettingsTests extends ESTestCase {
 
         AnalysisRegistry registry = new AnalysisModule(
             TestEnvironment.newEnvironment(emptyNodeSettings),
+            new AnalysisTestsHelper.MockClient(),
             emptyList(),
             new StablePluginsRegistry(
                 new NamedComponentReader(),

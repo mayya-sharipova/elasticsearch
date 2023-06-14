@@ -16,6 +16,7 @@ import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.IndexAnalyzers;
 import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.indices.analysis.AnalysisModule;
@@ -39,6 +40,7 @@ public class EdgeNGramTokenizerTests extends ESTokenStreamTestCase {
         IndexSettings idxSettings = IndexSettingsModule.newIndexSettings("index", indexSettings);
         return new AnalysisModule(
             TestEnvironment.newEnvironment(settings),
+            new AnalysisTestsHelper.MockClient(),
             Collections.singletonList(new CommonAnalysisPlugin()),
             new StablePluginsRegistry()
         ).getAnalysisRegistry().build(idxSettings);

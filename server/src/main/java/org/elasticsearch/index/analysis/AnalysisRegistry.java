@@ -22,6 +22,7 @@ import org.elasticsearch.index.mapper.TextFieldMapper;
 import org.elasticsearch.indices.analysis.AnalysisModule;
 import org.elasticsearch.indices.analysis.AnalysisModule.AnalysisProvider;
 import org.elasticsearch.indices.analysis.PreBuiltAnalyzers;
+import org.elasticsearch.synonyms.SynonymsManagementAPIService;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -57,6 +58,7 @@ public final class AnalysisRegistry implements Closeable {
     private final Map<String, Analyzer> cachedAnalyzer = new ConcurrentHashMap<>();
 
     private final Environment environment;
+    private final SynonymsManagementAPIService synonymsManagementAPIService;
     private final Map<String, AnalysisProvider<CharFilterFactory>> charFilters;
     private final Map<String, AnalysisProvider<TokenFilterFactory>> tokenFilters;
     private final Map<String, AnalysisProvider<TokenizerFactory>> tokenizers;
@@ -65,6 +67,7 @@ public final class AnalysisRegistry implements Closeable {
 
     public AnalysisRegistry(
         Environment environment,
+        SynonymsManagementAPIService synonymsManagementAPIService,
         Map<String, AnalysisProvider<CharFilterFactory>> charFilters,
         Map<String, AnalysisProvider<TokenFilterFactory>> tokenFilters,
         Map<String, AnalysisProvider<TokenizerFactory>> tokenizers,
@@ -76,6 +79,7 @@ public final class AnalysisRegistry implements Closeable {
         Map<String, PreBuiltAnalyzerProviderFactory> preConfiguredAnalyzers
     ) {
         this.environment = environment;
+        this.synonymsManagementAPIService = synonymsManagementAPIService;
         this.charFilters = unmodifiableMap(charFilters);
         this.tokenFilters = unmodifiableMap(tokenFilters);
         this.tokenizers = unmodifiableMap(tokenizers);
@@ -534,6 +538,10 @@ public final class AnalysisRegistry implements Closeable {
             throw new IllegalArgumentException("Unknown " + component + " type [" + typeName + "] for [" + name + "]");
         }
         return type;
+    }
+
+    public SynonymsManagementAPIService getSynonymsManagementAPIService() {
+        return synonymsManagementAPIService;
     }
 
     private static class PrebuiltAnalysis implements Closeable {

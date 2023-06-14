@@ -9,6 +9,12 @@
 package org.elasticsearch.index.analysis;
 
 import org.elasticsearch.Version;
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.ActionRequest;
+import org.elasticsearch.action.ActionResponse;
+import org.elasticsearch.action.ActionType;
+import org.elasticsearch.client.internal.Client;
+import org.elasticsearch.client.internal.support.AbstractClient;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.Environment;
@@ -55,8 +61,10 @@ public class AnalysisTestsHelper {
             actualSettings = settings;
         }
         final IndexSettings indexSettings = IndexSettingsModule.newIndexSettings("test", actualSettings);
+        Client client = new MockClient();
         final AnalysisRegistry analysisRegistry = new AnalysisModule(
             new Environment(actualSettings, configPath),
+            client,
             Arrays.asList(plugins),
             new StablePluginsRegistry()
         ).getAnalysisRegistry();
@@ -66,6 +74,22 @@ public class AnalysisTestsHelper {
             analysisRegistry.buildTokenizerFactories(indexSettings),
             analysisRegistry.buildCharFilterFactories(indexSettings)
         );
+    }
+
+    public static class MockClient extends AbstractClient {
+        public MockClient() {
+            super(Settings.EMPTY, null);
+        }
+
+        @Override
+        public void close() {}
+
+        @Override
+        protected <Request extends ActionRequest, Response extends ActionResponse> void doExecute(
+            ActionType<Response> action,
+            Request request,
+            ActionListener<Response> listener
+        ) {}
     }
 
 }

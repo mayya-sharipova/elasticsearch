@@ -49,6 +49,7 @@ public class WatcherPluginTests extends ESTestCase {
         IndexSettings indexSettings = IndexSettingsModule.newIndexSettings(Watch.INDEX, settings);
         AnalysisRegistry registry = new AnalysisRegistry(
             TestEnvironment.newEnvironment(settings),
+            null,
             emptyMap(),
             emptyMap(),
             emptyMap(),

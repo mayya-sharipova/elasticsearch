@@ -22,10 +22,15 @@ import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.client.internal.OriginSettingClient;
+import org.elasticsearch.cluster.ClusterChangedEvent;
+import org.elasticsearch.cluster.ClusterStateApplier;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
+import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.routing.Preference;
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
+import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.reindex.BulkByScrollResponse;
@@ -43,6 +48,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.elasticsearch.index.mapper.MapperService.SINGLE_MAPPING_NAME;
@@ -51,7 +58,7 @@ import static org.elasticsearch.xcontent.XContentFactory.jsonBuilder;
 /**
  * Manages synonyms performing operations on the system index
  */
-public class SynonymsManagementAPIService {
+public class SynonymsManagementAPIService implements ClusterStateApplier {
     public static final String SYNONYMS_INDEX_NAME_PATTERN = ".synonyms-*";
     public static final String SYNONYMS_INDEX_CONCRETE_NAME = ".synonyms-1";
     public static final String SYNONYMS_ALIAS_NAME = ".synonyms";
@@ -62,10 +69,11 @@ public class SynonymsManagementAPIService {
     public static final String SYNONYM_RULE_ID_SEPARATOR = "|";
     public static final String SYNONYM_SETS_AGG_NAME = "synonym_sets_aggr";
     public static final int MAX_SYNONYMS_SETS = 10_000;
+    public static final String SYNONYMS_ORIGIN = "synonyms";
 
     private final Client client;
+    final Set<Index> indicesWithSynonyms = ConcurrentCollections.newConcurrentSet();
 
-    public static final String SYNONYMS_ORIGIN = "synonyms";
     public static final SystemIndexDescriptor SYNONYMS_DESCRIPTOR = SystemIndexDescriptor.builder()
         .setIndexPattern(SYNONYMS_INDEX_NAME_PATTERN)
         .setDescription("Synonyms index for synonyms managed through APIs")
@@ -288,6 +296,21 @@ public class SynonymsManagementAPIService {
             .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
             .put(IndexMetadata.SETTING_AUTO_EXPAND_REPLICAS, "0-all")
             .build();
+    }
+
+    @Override
+    public void applyClusterState(ClusterChangedEvent event) {
+        final Metadata metadata = event.state().metadata();
+        final Map<String, IndexMetadata> indices = metadata.indices();
+        if (indices == event.previousState().metadata().indices()) {
+            return;
+        }
+
+        // add new indices
+        for (IndexMetadata indexMetadata : indices.values()) {
+            final Index index = indexMetadata.getIndex();
+
+        }
     }
 
     public enum UpdateSynonymsResult {

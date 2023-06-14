@@ -74,6 +74,7 @@ public class SynonymTokenFilterFactory extends AbstractTokenFilterFactory {
         this.environment = env;
         this.synonymsManagementAPIService = synonymsManagementAPIService;
         this.threadPool = threadPool;
+        indexSettings.getIndex().getName();
     }
 
     @Override

@@ -25,6 +25,7 @@ import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.AbstractCharFilterFactory;
 import org.elasticsearch.index.analysis.AbstractTokenFilterFactory;
 import org.elasticsearch.index.analysis.AnalysisRegistry;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.CharFilterFactory;
 import org.elasticsearch.index.analysis.IndexAnalyzers;
 import org.elasticsearch.index.analysis.PreConfiguredCharFilter;
@@ -139,7 +140,8 @@ public class TransportAnalyzeActionTests extends ESTestCase {
                 return singletonList(PreConfiguredCharFilter.singleton("append", false, reader -> new AppendCharFilter(reader, "foo")));
             }
         };
-        registry = new AnalysisModule(environment, singletonList(plugin), new StablePluginsRegistry()).getAnalysisRegistry();
+        registry = new AnalysisModule(environment, new AnalysisTestsHelper.MockClient(), singletonList(plugin), new StablePluginsRegistry())
+            .getAnalysisRegistry();
         indexAnalyzers = registry.build(this.indexSettings);
         maxTokenCount = IndexSettings.MAX_TOKEN_COUNT_SETTING.getDefault(settings);
         idxMaxTokenCount = this.indexSettings.getMaxTokenCount();

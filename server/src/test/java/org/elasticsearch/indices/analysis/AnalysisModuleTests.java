@@ -22,6 +22,7 @@ import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.Analysis;
 import org.elasticsearch.index.analysis.AnalysisRegistry;
+import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.CharFilterFactory;
 import org.elasticsearch.index.analysis.CustomAnalyzer;
 import org.elasticsearch.index.analysis.IndexAnalyzers;
@@ -78,17 +79,22 @@ public class AnalysisModuleTests extends ESTestCase {
 
     public AnalysisRegistry getNewRegistry(Settings settings) {
         try {
-            return new AnalysisModule(TestEnvironment.newEnvironment(settings), singletonList(new AnalysisPlugin() {
-                @Override
-                public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
-                    return singletonMap("myfilter", MyFilterTokenFilterFactory::new);
-                }
+            return new AnalysisModule(
+                TestEnvironment.newEnvironment(settings),
+                new AnalysisTestsHelper.MockClient(),
+                singletonList(new AnalysisPlugin() {
+                    @Override
+                    public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
+                        return singletonMap("myfilter", MyFilterTokenFilterFactory::new);
+                    }
 
-                @Override
-                public Map<String, AnalysisProvider<CharFilterFactory>> getCharFilters() {
-                    return AnalysisPlugin.super.getCharFilters();
-                }
-            }), new StablePluginsRegistry()).getAnalysisRegistry();
+                    @Override
+                    public Map<String, AnalysisProvider<CharFilterFactory>> getCharFilters() {
+                        return AnalysisPlugin.super.getCharFilters();
+                    }
+                }),
+                new StablePluginsRegistry()
+            ).getAnalysisRegistry();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -223,6 +229,7 @@ public class AnalysisModuleTests extends ESTestCase {
         boolean elasticsearchVersionSupportsMultiTerm = randomBoolean();
         AnalysisRegistry registry = new AnalysisModule(
             TestEnvironment.newEnvironment(emptyNodeSettings),
+            new AnalysisTestsHelper.MockClient(),
             singletonList(new AnalysisPlugin() {
                 @Override
                 public List<PreConfiguredCharFilter> getPreConfiguredCharFilters() {
@@ -304,6 +311,7 @@ public class AnalysisModuleTests extends ESTestCase {
         boolean elasticsearchVersionSupportsMultiTerm = randomBoolean();
         AnalysisRegistry registry = new AnalysisModule(
             TestEnvironment.newEnvironment(emptyNodeSettings),
+            new AnalysisTestsHelper.MockClient(),
             singletonList(new AnalysisPlugin() {
                 @Override
                 public List<PreConfiguredTokenFilter> getPreConfiguredTokenFilters() {
@@ -400,6 +408,7 @@ public class AnalysisModuleTests extends ESTestCase {
         }
         AnalysisRegistry registry = new AnalysisModule(
             TestEnvironment.newEnvironment(emptyNodeSettings),
+            new AnalysisTestsHelper.MockClient(),
             singletonList(new AnalysisPlugin() {
                 @Override
                 public List<PreConfiguredTokenizer> getPreConfiguredTokenizers() {
@@ -457,7 +466,7 @@ public class AnalysisModuleTests extends ESTestCase {
         try (Directory tmp = newFSDirectory(environment.tmpFile())) {
             dictionary = new Dictionary(tmp, "hunspell", aff, dic);
         }
-        AnalysisModule module = new AnalysisModule(environment, singletonList(new AnalysisPlugin() {
+        AnalysisModule module = new AnalysisModule(environment, new AnalysisTestsHelper.MockClient(), singletonList(new AnalysisPlugin() {
             @Override
             public Map<String, Dictionary> getHunspellDictionaries() {
                 return singletonMap("foo", dictionary);

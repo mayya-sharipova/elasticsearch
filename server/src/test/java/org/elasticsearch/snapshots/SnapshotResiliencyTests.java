@@ -1770,6 +1770,7 @@ public class SnapshotResiliencyTests extends ESTestCase {
                     namedXContentRegistry,
                     new AnalysisRegistry(
                         environment,
+                        null,
                         emptyMap(),
                         emptyMap(),
                         emptyMap(),
@@ -1927,7 +1928,8 @@ public class SnapshotResiliencyTests extends ESTestCase {
                             threadPool,
                             environment,
                             scriptService,
-                            new AnalysisModule(environment, Collections.emptyList(), new StablePluginsRegistry()).getAnalysisRegistry(),
+                            new AnalysisModule(environment, client, Collections.emptyList(), new StablePluginsRegistry())
+                                .getAnalysisRegistry(),
                             Collections.emptyList(),
                             client,
                             null

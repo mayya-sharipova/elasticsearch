@@ -11,6 +11,7 @@ package org.elasticsearch.indices.analysis;
 import org.apache.lucene.analysis.LowerCaseFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.elasticsearch.Version;
+import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.common.NamedRegistry;
 import org.elasticsearch.common.logging.DeprecationCategory;
@@ -37,6 +38,7 @@ import org.elasticsearch.index.analysis.TokenizerFactory;
 import org.elasticsearch.indices.analysis.wrappers.StableApiWrappers;
 import org.elasticsearch.plugins.AnalysisPlugin;
 import org.elasticsearch.plugins.scanners.StablePluginsRegistry;
+import org.elasticsearch.synonyms.SynonymsManagementAPIService;
 
 import java.io.IOException;
 import java.util.List;
@@ -66,8 +68,12 @@ public final class AnalysisModule {
     private final HunspellService hunspellService;
     private final AnalysisRegistry analysisRegistry;
 
-    public AnalysisModule(Environment environment, List<AnalysisPlugin> plugins, StablePluginsRegistry stablePluginRegistry)
+    public AnalysisModule(Environment environment, Client client, List<AnalysisPlugin> plugins, StablePluginsRegistry stablePluginRegistry)
         throws IOException {
+
+        SynonymsManagementAPIService synonymsManagementAPIService = new SynonymsManagementAPIService(client);
+        plugins.forEach(plugin -> plugin.setSynonymsManagementAPIService(synonymsManagementAPIService));
+
         NamedRegistry<AnalysisProvider<CharFilterFactory>> charFilters = setupCharFilters(plugins, stablePluginRegistry);
         NamedRegistry<org.apache.lucene.analysis.hunspell.Dictionary> hunspellDictionaries = setupHunspellDictionaries(plugins);
         hunspellService = new HunspellService(environment.settings(), environment, hunspellDictionaries.getRegistry());
@@ -87,6 +93,7 @@ public final class AnalysisModule {
 
         analysisRegistry = new AnalysisRegistry(
             environment,
+            synonymsManagementAPIService,
             charFilters.getRegistry(),
             tokenFilters.getRegistry(),
             tokenizers.getRegistry(),

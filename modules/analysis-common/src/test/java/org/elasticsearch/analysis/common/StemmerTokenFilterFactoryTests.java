@@ -32,8 +32,6 @@ import static org.hamcrest.Matchers.instanceOf;
 
 public class StemmerTokenFilterFactoryTests extends ESTokenStreamTestCase {
 
-    private static final CommonAnalysisPlugin PLUGIN = new CommonAnalysisPlugin();
-
     public void testEnglishFilterFactory() throws IOException {
         int iters = scaledRandomIntBetween(20, 100);
         for (int i = 0; i < iters; i++) {
@@ -47,7 +45,8 @@ public class StemmerTokenFilterFactoryTests extends ESTokenStreamTestCase {
                 .put(Environment.PATH_HOME_SETTING.getKey(), createTempDir().toString())
                 .build();
 
-            ESTestCase.TestAnalysis analysis = AnalysisTestsHelper.createTestAnalysisFromSettings(settings, PLUGIN);
+            CommonAnalysisPlugin plugin = new CommonAnalysisPlugin();
+            ESTestCase.TestAnalysis analysis = AnalysisTestsHelper.createTestAnalysisFromSettings(settings, plugin);
             TokenFilterFactory tokenFilter = analysis.tokenFilter.get("my_english");
             assertThat(tokenFilter, instanceOf(StemmerTokenFilterFactory.class));
             Tokenizer tokenizer = new WhitespaceTokenizer();
@@ -74,7 +73,8 @@ public class StemmerTokenFilterFactoryTests extends ESTokenStreamTestCase {
                 .put(Environment.PATH_HOME_SETTING.getKey(), createTempDir().toString())
                 .build();
 
-            ESTestCase.TestAnalysis analysis = AnalysisTestsHelper.createTestAnalysisFromSettings(settings, PLUGIN);
+            CommonAnalysisPlugin plugin = new CommonAnalysisPlugin();
+            ESTestCase.TestAnalysis analysis = AnalysisTestsHelper.createTestAnalysisFromSettings(settings, plugin);
             TokenFilterFactory tokenFilter = analysis.tokenFilter.get("my_porter2");
             assertThat(tokenFilter, instanceOf(StemmerTokenFilterFactory.class));
             Tokenizer tokenizer = new WhitespaceTokenizer();
@@ -87,7 +87,7 @@ public class StemmerTokenFilterFactoryTests extends ESTokenStreamTestCase {
         }
     }
 
-    public void testMultipleLanguagesThrowsException() throws IOException {
+    public void testMultipleLanguagesThrowsException() {
         Version v = VersionUtils.randomVersion(random());
         Settings settings = Settings.builder()
             .put("index.analysis.filter.my_english.type", "stemmer")
@@ -96,9 +96,10 @@ public class StemmerTokenFilterFactoryTests extends ESTokenStreamTestCase {
             .put(Environment.PATH_HOME_SETTING.getKey(), createTempDir().toString())
             .build();
 
+        CommonAnalysisPlugin plugin = new CommonAnalysisPlugin();
         IllegalArgumentException e = expectThrows(
             IllegalArgumentException.class,
-            () -> AnalysisTestsHelper.createTestAnalysisFromSettings(settings, PLUGIN)
+            () -> AnalysisTestsHelper.createTestAnalysisFromSettings(settings, plugin)
         );
         assertEquals("Invalid stemmer class specified: [english, light_english]", e.getMessage());
     }

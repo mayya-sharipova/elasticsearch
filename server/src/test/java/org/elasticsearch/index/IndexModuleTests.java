@@ -173,6 +173,7 @@ public class IndexModuleTests extends ESTestCase {
         environment = TestEnvironment.newEnvironment(settings);
         emptyAnalysisRegistry = new AnalysisRegistry(
             environment,
+            null,
             emptyMap(),
             emptyMap(),
             emptyMap(),
@@ -581,6 +582,7 @@ public class IndexModuleTests extends ESTestCase {
         };
         final AnalysisRegistry analysisRegistry = new AnalysisRegistry(
             environment,
+            null,
             emptyMap(),
             emptyMap(),
             emptyMap(),
