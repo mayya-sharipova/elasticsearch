@@ -25,6 +25,7 @@ import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.util.FixedBitSet;
 import org.elasticsearch.index.IndexVersion;
 import org.elasticsearch.index.mapper.SeqNoFieldMapper;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.fetch.FetchContext;
@@ -57,7 +58,7 @@ public class PercolatorMatchedSlotSubFetchPhaseTests extends ESTestCase {
                 // A match:
                 {
                     HitContext hit = new HitContext(new SearchHit(0), context, 0, Map.of(), Source.empty(null));
-                    PercolateQuery.QueryStore queryStore = ctx -> docId -> new TermQuery(new Term("field", "value"));
+                    PercolateQuery.QueryStore queryStore = ctx -> docId -> new ParsedQuery(new TermQuery(new Term("field", "value")));
                     MemoryIndex memoryIndex = new MemoryIndex();
                     memoryIndex.addField("field", "value", new WhitespaceAnalyzer());
                     memoryIndex.addField(new NumericDocValuesField(SeqNoFieldMapper.PRIMARY_TERM_NAME, 0), null);
@@ -88,7 +89,7 @@ public class PercolatorMatchedSlotSubFetchPhaseTests extends ESTestCase {
                 // No match:
                 {
                     HitContext hit = new HitContext(new SearchHit(0), context, 0, Map.of(), Source.empty(null));
-                    PercolateQuery.QueryStore queryStore = ctx -> docId -> new TermQuery(new Term("field", "value"));
+                    PercolateQuery.QueryStore queryStore = ctx -> docId -> new ParsedQuery(new TermQuery(new Term("field", "value")));
                     MemoryIndex memoryIndex = new MemoryIndex();
                     memoryIndex.addField("field", "value1", new WhitespaceAnalyzer());
                     memoryIndex.addField(new NumericDocValuesField(SeqNoFieldMapper.PRIMARY_TERM_NAME, 0), null);

@@ -16,6 +16,7 @@ import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.document.DocumentField;
 import org.elasticsearch.index.fieldvisitor.LeafStoredFieldLoader;
 import org.elasticsearch.index.fieldvisitor.StoredFieldLoader;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.fetch.FetchContext;
 import org.elasticsearch.search.fetch.FetchSubPhase;
@@ -78,14 +79,15 @@ final class PercolatorHighlightSubFetchPhase implements FetchSubPhase {
                     PercolateQuery.QueryStore queryStore = percolateQuery.getQueryStore();
 
                     LeafReaderContext percolatorLeafReaderContext = percolatorIndexSearcher.getIndexReader().leaves().get(0);
-                    final Query query = queryStore.getQueries(ctx).apply(hit.docId());
-                    if (query != null) {
+                    final ParsedQuery parsedQuery = queryStore.getQueries(ctx).apply(hit.docId());
+                    if (parsedQuery != null) {
                         DocumentField field = hit.hit().field(fieldName);
                         if (field == null) {
                             // It possible that a hit did not match with a particular percolate query,
                             // so then continue highlighting with the next hit.
                             continue;
                         }
+                        Query query = parsedQuery.query();
 
                         SearchHighlightContext highlight = new SearchHighlightContext(fetchContext.highlight().fields());
                         FetchSubPhaseProcessor processor = highlightPhase.getProcessor(fetchContext, highlight, query);

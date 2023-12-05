@@ -29,6 +29,8 @@ import org.elasticsearch.index.mapper.KeywordFieldMapper;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperBuilderContext;
 import org.elasticsearch.index.mapper.TestDocumentParserContext;
+import org.elasticsearch.index.query.ParsedQuery;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.search.SearchModule;
@@ -93,14 +95,26 @@ public class QueryBuilderStoreTests extends ESTestCase {
                 final String fieldName = (String) invocation.getArguments()[0];
                 return new KeywordFieldMapper.KeywordFieldType(fieldName);
             });
+
+            when(searchExecutionContext.getFieldType(Mockito.anyString())).thenAnswer(invocation -> {
+                final String fieldName = (String) invocation.getArguments()[0];
+                return new KeywordFieldMapper.KeywordFieldType(fieldName);
+            });
+
+            when(searchExecutionContext.toQuery(Mockito.any(QueryBuilder.class))).thenAnswer(invocation -> {
+                final QueryBuilder queryBuilder = (QueryBuilder) invocation.getArguments()[0];
+                Query query = queryBuilder.toQuery(searchExecutionContext);
+                return new ParsedQuery(query);
+            });
             PercolateQuery.QueryStore queryStore = PercolateQueryBuilder.createStore(fieldMapper.fieldType(), searchExecutionContext);
 
             try (IndexReader indexReader = DirectoryReader.open(directory)) {
                 LeafReaderContext leafContext = indexReader.leaves().get(0);
-                CheckedFunction<Integer, Query, IOException> queries = queryStore.getQueries(leafContext);
+                CheckedFunction<Integer, ParsedQuery, IOException> queries = queryStore.getQueries(leafContext);
                 assertEquals(queryBuilders.length, leafContext.reader().numDocs());
                 for (int i = 0; i < queryBuilders.length; i++) {
-                    TermQuery query = (TermQuery) queries.apply(i);
+                    ParsedQuery parsedQuery = queries.apply(i);
+                    TermQuery query = (TermQuery) parsedQuery.query();
                     assertEquals(queryBuilders[i].fieldName(), query.getTerm().field());
                     assertEquals(queryBuilders[i].value(), query.getTerm().text());
                 }

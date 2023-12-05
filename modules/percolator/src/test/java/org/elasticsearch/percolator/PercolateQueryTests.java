@@ -33,6 +33,7 @@ import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.elasticsearch.common.bytes.BytesArray;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.test.ESTestCase;
 import org.junit.After;
 import org.junit.Before;
@@ -68,7 +69,13 @@ public class PercolateQueryTests extends ESTestCase {
     public void testPercolateQuery() throws Exception {
         List<Iterable<? extends IndexableField>> docs = new ArrayList<>();
         List<Query> queries = new ArrayList<>();
-        PercolateQuery.QueryStore queryStore = ctx -> queries::get;
+        PercolateQuery.QueryStore queryStore = ctx -> docId -> {
+            Query query = queries.get(docId);
+            if (query == null) {
+                return null;
+            }
+            return new ParsedQuery(query);
+        };
 
         queries.add(new TermQuery(new Term("field", "fox")));
         docs.add(Collections.singleton(new StringField("select", "a", Field.Store.NO)));

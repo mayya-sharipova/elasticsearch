@@ -11,6 +11,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.NamedMatches;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
@@ -23,6 +24,7 @@ import org.apache.lucene.util.BitSetIterator;
 import org.elasticsearch.common.document.DocumentField;
 import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.index.IndexVersion;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.search.fetch.FetchContext;
 import org.elasticsearch.search.fetch.FetchSubPhase;
 import org.elasticsearch.search.fetch.FetchSubPhaseProcessor;
@@ -79,24 +81,49 @@ final class PercolatorMatchedSlotSubFetchPhase implements FetchSubPhase {
             public void process(HitContext hitContext) throws IOException {
                 for (PercolateContext pc : percolateContexts) {
                     String fieldName = pc.fieldName();
-                    Query query = pc.percolateQuery.getQueryStore().getQueries(ctx).apply(hitContext.docId());
-                    if (query == null) {
+                    ParsedQuery parsedQuery = pc.percolateQuery.getQueryStore().getQueries(ctx).apply(hitContext.docId());
+                    if (parsedQuery == null) {
                         // This is not a document with a percolator field.
                         continue;
                     }
+                    Query query = parsedQuery.query();
                     query = pc.filterNestedDocs(query, fetchContext.getSearchExecutionContext().indexVersionCreated());
                     IndexSearcher percolatorIndexSearcher = pc.percolateQuery.getPercolatorIndexSearcher();
                     int memoryIndexMaxDoc = percolatorIndexSearcher.getIndexReader().maxDoc();
+
                     TopDocs topDocs = percolatorIndexSearcher.search(query, memoryIndexMaxDoc, new Sort(SortField.FIELD_DOC));
                     if (topDocs.totalHits.value == 0) {
                         // This hit didn't match with a percolate query,
                         // likely to happen when percolating multiple documents
                         continue;
                     }
-
                     IntStream slots = convertTopDocsToSlots(topDocs, pc.rootDocsBySlot);
                     // _percolator_document_slot fields are document fields and should be under "fields" section in a hit
-                    hitContext.hit().setDocumentField(fieldName, new DocumentField(fieldName, slots.boxed().collect(Collectors.toList())));
+                    List<Object> docSlots = slots.boxed().collect(Collectors.toList());
+                    hitContext.hit().setDocumentField(fieldName, new DocumentField(fieldName, docSlots));
+
+                    if (parsedQuery.namedFilters() == null) {
+                        continue;
+                    }
+                    // Add info about what sub-queries of percolator query matched each document
+                    List<LeafReaderContext> leafContexts = percolatorIndexSearcher.getLeafContexts();
+                    assert leafContexts.size() == 1 : "Expected single leaf, but got [" + leafContexts.size() + "]";
+                    LeafReaderContext memoryReaderContext = leafContexts.get(0);
+                    Weight weight = percolatorIndexSearcher.createWeight(query, ScoreMode.COMPLETE_NO_SCORES, 1);
+                    for (int i = 0; i < topDocs.scoreDocs.length; i++) {
+                        List<NamedMatches> namedMatchesList = NamedMatches.findNamedMatches(
+                            weight.matches(memoryReaderContext, topDocs.scoreDocs[i].doc)
+                        );
+                        if (namedMatchesList.isEmpty()) {
+                            continue;
+                        }
+                        List<Object> matchedQueries = new ArrayList<>(namedMatchesList.size());
+                        for (int j = 0; j < namedMatchesList.size(); j++) {
+                            matchedQueries.add(namedMatchesList.get(j).getName());
+                        }
+                        String matchedFieldName = fieldName + "_" + docSlots.get(i) + "_matched_queries";
+                        hitContext.hit().setDocumentField(matchedFieldName, new DocumentField(matchedFieldName, matchedQueries));
+                    }
                 }
             }
         };

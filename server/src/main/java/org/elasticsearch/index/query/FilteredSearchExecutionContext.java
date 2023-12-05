@@ -378,4 +378,14 @@ public class FilteredSearchExecutionContext extends SearchExecutionContext {
     public Set<String> getMatchingFieldNames(String pattern) {
         return in.getMatchingFieldNames(pattern);
     }
+
+    @Override
+    public void setRewriteToNamedQueries() {
+        in.setRewriteToNamedQueries();
+    }
+
+    @Override
+    public boolean getRewriteToNamedQuery() {
+        return in.getRewriteToNamedQuery();
+    }
 }

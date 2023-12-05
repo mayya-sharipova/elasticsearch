@@ -81,6 +81,7 @@ import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.NumberFieldMapper;
 import org.elasticsearch.index.mapper.TestDocumentParserContext;
+import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.lucene.queries.BlendedTermQuery;
 import org.elasticsearch.plugins.Plugin;
@@ -187,7 +188,13 @@ public class CandidateQueryTests extends ESSingleNodeTestCase {
         fieldType = (PercolatorFieldMapper.PercolatorFieldType) fieldMapper.fieldType();
 
         queries = new ArrayList<>();
-        queryStore = ctx -> docId -> this.queries.get(docId);
+        queryStore = ctx -> docId -> {
+            Query query = this.queries.get(docId);
+            if (query == null) {
+                return null;
+            }
+            return new ParsedQuery(query);
+        };
     }
 
     @After
@@ -1291,13 +1298,14 @@ public class CandidateQueryTests extends ESSingleNodeTestCase {
                 public Scorer scorer(LeafReaderContext context) throws IOException {
                     float _score[] = new float[] { boost };
                     DocIdSetIterator allDocs = DocIdSetIterator.all(context.reader().maxDoc());
-                    CheckedFunction<Integer, Query, IOException> leaf = queryStore.getQueries(context);
+                    CheckedFunction<Integer, ParsedQuery, IOException> leaf = queryStore.getQueries(context);
                     FilteredDocIdSetIterator memoryIndexIterator = new FilteredDocIdSetIterator(allDocs) {
 
                         @Override
                         protected boolean match(int doc) {
                             try {
-                                Query query = leaf.apply(doc);
+                                ParsedQuery parsedQuery = leaf.apply(doc);
+                                Query query = parsedQuery.query();
                                 TopDocs topDocs = percolatorIndexSearcher.search(query, 1);
                                 if (topDocs.scoreDocs.length > 0) {
                                     if (scoreMode.needsScores()) {

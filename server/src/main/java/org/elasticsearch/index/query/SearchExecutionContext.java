@@ -97,6 +97,7 @@ public class SearchExecutionContext extends QueryRewriteContext {
 
     private final Map<String, Query> namedQueries = new HashMap<>();
     private NestedScope nestedScope;
+    private boolean rewriteToNamedQueries = false;
 
     private QueryBuilder aliasFilter;
 
@@ -618,5 +619,13 @@ public class SearchExecutionContext extends QueryRewriteContext {
 
     public NestedDocuments getNestedDocuments() {
         return new NestedDocuments(mappingLookup, bitsetFilterCache::getBitSetProducer, indexVersionCreated());
+    }
+
+    public void setRewriteToNamedQueries() {
+        this.rewriteToNamedQueries = true;
+    }
+
+    public boolean getRewriteToNamedQuery() {
+        return rewriteToNamedQueries;
     }
 }

@@ -61,7 +61,6 @@ import org.elasticsearch.index.query.AbstractQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.index.query.QueryShardException;
-import org.elasticsearch.index.query.Rewriteable;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
@@ -608,8 +607,9 @@ public class PercolateQueryBuilder extends AbstractQueryBuilder<PercolateQueryBu
 
                         QueryBuilder queryBuilder = input.readNamedWriteable(QueryBuilder.class);
                         assert in.read() == -1;
-                        queryBuilder = Rewriteable.rewrite(queryBuilder, context);
-                        return queryBuilder.toQuery(context);
+                        // to find which sub-queries of percolator matched a document, we are using Matches API and named queries
+                        context.setRewriteToNamedQueries();
+                        return context.toQuery(queryBuilder);
                     }
 
                 } else {

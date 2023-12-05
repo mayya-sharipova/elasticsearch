@@ -27,6 +27,7 @@ import org.apache.lucene.util.Bits;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.lucene.Lucene;
 import org.elasticsearch.core.CheckedFunction;
+import org.elasticsearch.index.query.ParsedQuery;
 
 import java.io.IOException;
 import java.util.List;
@@ -95,9 +96,11 @@ final class PercolateQuery extends Query implements Accountable {
                     if (result == docId) {
                         if (twoPhaseIterator.matches()) {
                             if (scoreMode.needsScores()) {
-                                CheckedFunction<Integer, Query, IOException> percolatorQueries = queryStore.getQueries(leafReaderContext);
-                                Query query = percolatorQueries.apply(docId);
-                                Explanation detail = percolatorIndexSearcher.explain(query, 0);
+                                CheckedFunction<Integer, ParsedQuery, IOException> percolatorQueries = queryStore.getQueries(
+                                    leafReaderContext
+                                );
+                                ParsedQuery parsedQuery = percolatorQueries.apply(docId);
+                                Explanation detail = percolatorIndexSearcher.explain(parsedQuery.query(), 0);
                                 return Explanation.match(scorer.score(), "PercolateQuery", detail);
                             } else {
                                 return Explanation.match(scorer.score(), "PercolateQuery");
@@ -115,7 +118,7 @@ final class PercolateQuery extends Query implements Accountable {
                     return null;
                 }
 
-                final CheckedFunction<Integer, Query, IOException> percolatorQueries = queryStore.getQueries(leafReaderContext);
+                final CheckedFunction<Integer, ParsedQuery, IOException> percolatorQueries = queryStore.getQueries(leafReaderContext);
                 if (scoreMode.needsScores()) {
                     return new BaseScorer(this, approximation) {
 
@@ -123,8 +126,9 @@ final class PercolateQuery extends Query implements Accountable {
 
                         @Override
                         boolean matchDocId(int docId) throws IOException {
-                            Query query = percolatorQueries.apply(docId);
-                            if (query != null) {
+                            ParsedQuery parsedQuery = percolatorQueries.apply(docId);
+                            if (parsedQuery != null) {
+                                Query query = parsedQuery.query();
                                 if (nonNestedDocsFilter != null) {
                                     query = new BooleanQuery.Builder().add(query, Occur.MUST)
                                         .add(nonNestedDocsFilter, Occur.FILTER)
@@ -143,7 +147,7 @@ final class PercolateQuery extends Query implements Accountable {
                         }
 
                         @Override
-                        public float score() throws IOException {
+                        public float score() {
                             return score;
                         }
                     };
@@ -166,10 +170,11 @@ final class PercolateQuery extends Query implements Accountable {
                             if (verifiedDocsBits.get(docId)) {
                                 return true;
                             }
-                            Query query = percolatorQueries.apply(docId);
-                            if (query == null) {
+                            ParsedQuery parsedQuery = percolatorQueries.apply(docId);
+                            if (parsedQuery == null) {
                                 return false;
                             }
+                            Query query = parsedQuery.query();
                             if (nonNestedDocsFilter != null) {
                                 query = new BooleanQuery.Builder().add(query, Occur.MUST).add(nonNestedDocsFilter, Occur.FILTER).build();
                             }
@@ -257,7 +262,7 @@ final class PercolateQuery extends Query implements Accountable {
 
     @FunctionalInterface
     interface QueryStore {
-        CheckedFunction<Integer, Query, IOException> getQueries(LeafReaderContext ctx) throws IOException;
+        CheckedFunction<Integer, ParsedQuery, IOException> getQueries(LeafReaderContext ctx) throws IOException;
     }
 
     abstract static class BaseScorer extends Scorer {
