@@ -1,0 +1,151 @@
+setup:
+  - skip:
+      version: " - 8.12.99"
+      reason: matches highlighter introduced in 8.14.0
+
+  - do:
+      indices.create:
+        index: index1
+        body:
+          settings:
+            number_of_shards: 1
+          mappings:
+            properties:
+              content:
+                type: text
+
+  - do:
+      bulk:
+        index: index1
+        refresh: true
+        body: |
+          {"index":{"_id": 1}}
+          {"content": "Any day spent with you is my favorite day"}
+          {"index":{"_id": 2}}
+          {"content": "If you live to be a hundred, I hope I live to be a hundred minus one day, so that I never have to live a day without you."}
+
+  - do:
+      bulk:
+        index: index1
+        refresh: true
+        body: |
+          {"index":{"_id": 3}}
+          {"content": "People say nothing is impossible, but I do nothing every day"}
+          {"index":{"_id": 4}}
+          {"content": "A day without a friend is like a pot without a single drop of honey left inside"}
+---
+stored fields are highlighted:
+
+  - do:
+      indices.create:
+        index: index2
+        body:
+          mappings:
+            _source:
+              enabled: false
+            properties:
+              content:
+                type: text
+                store: true
+
+  - do:
+      bulk:
+        index: index2
+        refresh: true
+        body: |
+          {"index":{"_id": 1}}
+          {"content": "Any day spent with you is my favorite day"}
+          {"index":{"_id": 2}}
+          {"content": "'What day is it?' asked Pooh. 'It's today,' squeaked Piglet. 'My favorite day,' said Pooh."}
+
+  - do:
+      search:
+        index: index2
+        body:
+          query:
+            match_phrase:
+              content: "favorite day"
+          highlight:
+            fields:
+              content:
+                type: matches
+
+  - match: { hits.hits.0.highlight.content.0: "Any day spent with you is my <em>favorite day</em>" }
+  - match: { hits.hits.1.highlight.content.0: "'What day is it?' asked Pooh. 'It's today,' squeaked Piglet. 'My <em>favorite day</em>,' said Pooh." }
+
+
+---
+When number_of_fragments is set to 0, the entire field value is a highlight:
+
+  - do:
+      indices.create:
+        index: index3
+        body:
+          mappings:
+            properties:
+              content:
+                type: text
+
+  - do:
+      bulk:
+        index: index2
+        refresh: true
+        body: |
+          {"index":{"_id": 1}}
+          {"content": ["To her-Hand in hand we come Christopher Robin and I. To lay this book in your lap. Say you're surprised? Say you like it? Say it's just what you wanted? Because it's yours - because we love you",
+          "If ever there is tomorrow when we're not together. there is something you must always remember. You are braver than you believe, stronger than you seem, and smarter than you think. But the most important thing is, even if we're apart. I'll always be with you."]}
+
+  - do:
+      search:
+        index: index2
+        body:
+          query:
+            match_phrase:
+              content: "you"
+          highlight:
+            fields:
+              content:
+                type: matches
+                number_of_fragments : 0
+
+  # two highlights are returned, one for each value of the field
+  - match: { hits.hits.0.highlight.content.0: "To her-Hand in hand we come Christopher Robin and I. To lay this book in your lap. Say you're surprised? Say <em>you</em> like it? Say it's just what <em>you</em> wanted? Because it's yours - because we love <em>you</em>" }
+  - match: { hits.hits.0.highlight.content.1: "If ever there is tomorrow when we're not together. there is something <em>you</em> must always remember. <em>You</em> are braver than <em>you</em> believe, stronger than <em>you</em> seem, and smarter than <em>you</em> think. But the most important thing is, even if we're apart. I'll always be with <em>you</em>." }
+
+---
+Don't trim highlighted text if number_of_fragments is 0:
+# https://github.com/elastic/elasticsearch/issues/101803
+
+  - do:
+      indices.create:
+        index: index4
+        body:
+          mappings:
+            properties:
+              text:
+                type: text
+                analyzer: whitespace
+
+  - do:
+      index:
+        index: index4
+        body: { "text": " a  b c d " }
+        refresh: true
+
+  - do:
+      search:
+        index: index4
+        body:
+          query:
+            match:
+             text: "c"
+          highlight:
+            pre_tags: "("
+            post_tags: ")"
+            number_of_fragments : 0
+            fields:
+              text:
+                type: matches
+
+  - match: { hits.hits.0.highlight.text.0: " a  b (c) d " }
+

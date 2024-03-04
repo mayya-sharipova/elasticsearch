@@ -1,0 +1,127 @@
+setup:
+  - skip:
+      version: " - 8.12.99"
+      reason: matches highlighter introduced in 8.14.0
+
+---
+when source not available highlight is not returned:
+  - do:
+      indices.create:
+        index: index2
+        body:
+          settings:
+            number_of_shards: 1
+          mappings:
+            _source:
+              enabled: false
+            properties:
+              content:
+                type: text
+
+  - do:
+      bulk:
+        index: index2
+        refresh: true
+        body: |
+          {"index":{"_id": 1}}
+          {"content": "Any day spent with you is my favorite day"}
+          {"index":{"_id": 2}}
+          {"content": "If you live to be a hundred, I hope I live to be a hundred minus one day, so that I never have to live a day without you."}
+
+  - do:
+      search:
+        index: index2
+        body:
+          query:
+            match:
+              content: "day"
+          highlight:
+            fields:
+              content:
+                type: matches
+  - is_false: hits.hits.0.highlight
+  - is_false: hits.hits.1.highlight
+
+
+---
+span_field_masking is property highlighted:
+# https://github.com/elastic/elasticsearch/issues/101804
+
+  - do:
+      indices.create:
+        index: index3
+        body:
+          mappings:
+            properties:
+              text:
+                type: text
+                analyzer: whitespace
+              stem:
+                type: text
+                analyzer: whitespace
+
+  - do:
+      index:
+        index: index3
+        body: { "text": "a _ a b", "stem": "_ b _ _" }
+        refresh: true
+
+  - do:
+      search:
+        index: index3
+        body:
+          query:
+            span_near:
+              clauses: [
+                span_term: { text: "a" },
+                span_field_masking: {field: "text", query: {span_term: { stem: "b" }}}
+              ]
+              in_order: true
+              slop: 0
+          highlight:
+            pre_tags: "("
+            post_tags: ")"
+            fields:
+              text:
+                type: matches
+
+  - match: {hits.hits.0.highlight.text.0: "(a _) a b"}
+
+---
+fields with analyzer that skips terms are property highlighted:
+# https://github.com/elastic/elasticsearch/issues/105261
+
+  - do:
+      indices.create:
+        index: index4
+        body:
+          mappings:
+            properties:
+              content:
+                type: text
+                analyzer: classic
+
+  - do:
+      index:
+        index: index4
+        body: { "content": "The quick brown fox jumps over the lazy dog" }
+        refresh: true
+
+ # classic analyzer skips "the" term
+  - do:
+      search:
+        index: index4
+        body:
+          query:
+            intervals:
+              content:
+                match:
+                  max_gaps: 2
+                  ordered: true
+                  query: "quick brown fox jumps over the lazy dog"
+          highlight:
+            fields:
+              content:
+                type: matches
+
+  - match: {hits.hits.0.highlight.content.0: "The <em>quick brown fox jumps over the lazy dog</em>"}

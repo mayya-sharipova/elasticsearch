@@ -13,11 +13,14 @@ import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.ValueFetcher;
 import org.elasticsearch.index.query.SearchExecutionContext;
+import org.elasticsearch.lucene.search.uhighlight.BoundedBreakIteratorScanner;
 import org.elasticsearch.search.fetch.FetchSubPhase;
 
 import java.io.IOException;
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public final class HighlightUtils {
 
@@ -49,6 +52,28 @@ public final class HighlightUtils {
     public static class Encoders {
         public static final Encoder DEFAULT = new DefaultEncoder();
         public static final Encoder HTML = new SimpleHTMLEncoder();
+    }
+
+    public static BreakIterator getBreakIterator(SearchHighlightContext.Field field) {
+        final SearchHighlightContext.FieldOptions fieldOptions = field.fieldOptions();
+        final Locale locale = fieldOptions.boundaryScannerLocale() != null ? fieldOptions.boundaryScannerLocale() : Locale.ROOT;
+        final HighlightBuilder.BoundaryScannerType type = fieldOptions.boundaryScannerType() != null
+            ? fieldOptions.boundaryScannerType()
+            : HighlightBuilder.BoundaryScannerType.SENTENCE;
+        int maxLen = fieldOptions.fragmentCharSize();
+        switch (type) {
+            case SENTENCE -> {
+                if (maxLen > 0) {
+                    return BoundedBreakIteratorScanner.getSentence(locale, maxLen);
+                }
+                return BreakIterator.getSentenceInstance(locale);
+            }
+            case WORD -> {
+                // ignore maxLen
+                return BreakIterator.getWordInstance(locale);
+            }
+            default -> throw new IllegalArgumentException("Invalid boundary scanner type: " + type);
+        }
     }
 
 }

@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 import static org.elasticsearch.lucene.search.uhighlight.CustomUnifiedHighlighter.MULTIVAL_SEP_CHAR;
+import static org.elasticsearch.search.fetch.subphase.highlight.HighlightUtils.getBreakIterator;
 
 public class DefaultHighlighter implements Highlighter {
     @Override
@@ -181,28 +182,6 @@ public class DefaultHighlighter implements Highlighter {
             .stream()
             .<Object>map((s) -> convertFieldValue(fieldType, s))
             .toList();
-    }
-
-    protected static BreakIterator getBreakIterator(SearchHighlightContext.Field field) {
-        final SearchHighlightContext.FieldOptions fieldOptions = field.fieldOptions();
-        final Locale locale = fieldOptions.boundaryScannerLocale() != null ? fieldOptions.boundaryScannerLocale() : Locale.ROOT;
-        final HighlightBuilder.BoundaryScannerType type = fieldOptions.boundaryScannerType() != null
-            ? fieldOptions.boundaryScannerType()
-            : HighlightBuilder.BoundaryScannerType.SENTENCE;
-        int maxLen = fieldOptions.fragmentCharSize();
-        switch (type) {
-            case SENTENCE -> {
-                if (maxLen > 0) {
-                    return BoundedBreakIteratorScanner.getSentence(locale, maxLen);
-                }
-                return BreakIterator.getSentenceInstance(locale);
-            }
-            case WORD -> {
-                // ignore maxLen
-                return BreakIterator.getWordInstance(locale);
-            }
-            default -> throw new IllegalArgumentException("Invalid boundary scanner type: " + type);
-        }
     }
 
     protected static String convertFieldValue(MappedFieldType type, Object value) {
