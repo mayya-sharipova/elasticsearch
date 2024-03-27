@@ -996,7 +996,7 @@ public class DenseVectorFieldMapper extends FieldMapper {
 
         @Override
         public KnnVectorsFormat getVectorsFormat() {
-            return new Lucene99HnswScalarQuantizedVectorsFormat(m, efConstruction, 1, confidenceInterval, null);
+            return new Lucene99HnswScalarQuantizedVectorsFormat(m, efConstruction, 4, confidenceInterval, null);
         }
 
         @Override
@@ -1056,7 +1056,7 @@ public class DenseVectorFieldMapper extends FieldMapper {
 
         @Override
         public KnnVectorsFormat getVectorsFormat() {
-            return new Lucene99HnswVectorsFormat(m, efConstruction, 1, null);
+            return new Lucene99HnswVectorsFormat(m, efConstruction, 4, null);
         }
 
         @Override
