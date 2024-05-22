@@ -22,7 +22,10 @@ import org.elasticsearch.core.PathUtils;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.analysis.StandardTokenizerFactory;
 import org.elasticsearch.index.analysis.TokenizerFactory;
+import org.elasticsearch.index.mapper.extras.MapperExtrasPlugin;
+import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.test.ESSingleNodeTestCase;
 import org.elasticsearch.test.IndexSettingsModule;
 import org.elasticsearch.xcontent.XContentBuilder;
@@ -37,6 +40,8 @@ import java.lang.management.MemoryMXBean;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +53,13 @@ import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFa
 public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
 
     private static final int NUMBER_OF_RULES = 44722;
+
+    @Override
+    protected Collection<Class<? extends Plugin>> getPlugins() {
+        List<Class<? extends Plugin>> plugins = new ArrayList<>(super.getPlugins());
+        plugins.add(MapperExtrasPlugin.class);
+        return plugins;
+    }
 
     public void testSynonymsLoadingFromIndexSingleDoc() throws Exception {
         final String indexName = "synonyms1";
@@ -86,7 +98,7 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
 
         IndexSettings idxSettings = IndexSettingsModule.newIndexSettings("test_index", settings);
         TokenizerFactory tokenizerFactory = new StandardTokenizerFactory(idxSettings, node().getEnvironment(), "standard", settings);
-        SynonymTokenFilterFactory synonymFactory = new SynonymTokenFilterFactory(idxSettings, node().getEnvironment(), "synonym", settings);
+        SynonymTokenFilterFactory synonymFactory = new SynonymTokenFilterFactory(idxSettings, node().getEnvironment(), "synonym", settings, null);
         Analyzer analyzer = SynonymTokenFilterFactory.buildSynonymAnalyzer(
             tokenizerFactory,
             Collections.emptyList(),
@@ -109,10 +121,13 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
         final String synonymSetID = "synonyms_set1";
         final String synonymSetField = "synonyms_set";
         final String synonymsField = "synonyms";
+        final String idField = "id";
+        final String typeField = "type";
+        final int numberOfRules = 100_000;
 
         Settings settings = Settings.builder()
             .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-            .put(IndexSettings.MAX_RESULT_WINDOW_SETTING.getKey(), NUMBER_OF_RULES)
+            .put(IndexSettings.MAX_RESULT_WINDOW_SETTING.getKey(), numberOfRules)
             .build();
         XContentBuilder builder = XContentFactory.jsonBuilder()
             .startObject()
@@ -121,14 +136,19 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
             .field("type", "keyword")
             .endObject()
             .startObject(synonymsField)
-            .field("type", "object")
-            .field("enabled", "false")
+            .field("type", "match_only_text")
+            .endObject()
+            .startObject(idField)
+            .field("type", "keyword")
+            .endObject()
+            .startObject(typeField)
+            .field("type", "keyword")
             .endObject()
             .endObject()
             .endObject();
         createIndex(indexName, settings, builder);
 
-        final Path path = PathUtils.get(getClass().getResource("synonyms2.json").toURI());
+        final Path path = PathUtils.get(getClass().getResource("synonyms3.json").toURI());
         BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
         BulkRequestBuilder bulkBuilder = client().prepareBulk();
         String line;
@@ -136,16 +156,17 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
         while ((line = reader.readLine()) != null) {
             bulkBuilder.add(client().prepareIndex(indexName).setSource(line, XContentType.JSON));
             docNum++;
-            if (docNum % 2000 == 0) {
+            if (docNum % 10_000 == 0) {
                 BulkResponse bulkResponse = bulkBuilder.get();
                 assertNoFailures(bulkResponse);
                 bulkBuilder = client().prepareBulk();
             }
         }
-        assertEquals(NUMBER_OF_RULES, docNum);
-        BulkResponse bulkResponse = bulkBuilder.get();
-        assertNoFailures(bulkResponse);
-        bulkBuilder = client().prepareBulk();
+        assertEquals(numberOfRules, docNum);
+        if (bulkBuilder.numberOfActions() > 0) {
+            BulkResponse bulkResponse = bulkBuilder.get();
+            assertNoFailures(bulkResponse);
+        }
         reader.close();
 
         MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
@@ -154,12 +175,13 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
 
         client().admin().indices().prepareRefresh().get();
         SearchResponse response = client().prepareSearch(indexName)
-            .setQuery(boolQuery().filter(termQuery(synonymSetField, synonymSetID)))
-            .setSize(NUMBER_OF_RULES)
+            .setQuery(boolQuery().must(termQuery(synonymSetField, synonymSetID)).filter(termQuery(typeField, "synonym_rule")))
+            .setSize(numberOfRules)
+            .addSort("id", SortOrder.ASC)
             .setTrackTotalHits(true)
             .get();
-        assertEquals(NUMBER_OF_RULES, response.getHits().getTotalHits().value);
-        assertEquals(NUMBER_OF_RULES, response.getHits().getHits().length);
+        assertEquals(numberOfRules, response.getHits().getTotalHits().value);
+        assertEquals(numberOfRules, response.getHits().getHits().length);
 
         StringBuilder sb = new StringBuilder();
         for (SearchHit hit : response.getHits().getHits()) {
@@ -171,7 +193,7 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
 
         IndexSettings idxSettings = IndexSettingsModule.newIndexSettings("test_index", settings);
         TokenizerFactory tokenizerFactory = new StandardTokenizerFactory(idxSettings, node().getEnvironment(), "standard", settings);
-        SynonymTokenFilterFactory synonymFactory = new SynonymTokenFilterFactory(idxSettings, node().getEnvironment(), "synonym", settings);
+        SynonymTokenFilterFactory synonymFactory = new SynonymTokenFilterFactory(idxSettings, node().getEnvironment(), "synonym", settings, null);
         Analyzer analyzer = SynonymTokenFilterFactory.buildSynonymAnalyzer(
             tokenizerFactory,
             Collections.emptyList(),
@@ -181,7 +203,7 @@ public class SynonymsLoadingFromIndexTests extends ESSingleNodeTestCase {
             analyzer,
             new SynonymTokenFilterFactory.ReaderWithOrigin(synonymsReader, indexName)
         );
-        assertEquals(NUMBER_OF_RULES, synonymMap.words.size());
+        assertEquals(numberOfRules * 2, synonymMap.words.size());
 
         long endTime = System.currentTimeMillis();
         logger.info("Elapsed time: {} ms", (endTime - startTime));
