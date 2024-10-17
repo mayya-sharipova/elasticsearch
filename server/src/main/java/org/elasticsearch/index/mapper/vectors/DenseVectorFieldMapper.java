@@ -48,6 +48,7 @@ import org.elasticsearch.index.codec.vectors.ES815BitFlatVectorFormat;
 import org.elasticsearch.index.codec.vectors.ES815HnswBitVectorsFormat;
 import org.elasticsearch.index.codec.vectors.ES816BinaryQuantizedVectorsFormat;
 import org.elasticsearch.index.codec.vectors.ES816HnswBinaryQuantizedVectorsFormat;
+import org.elasticsearch.index.codec.vectors.auto.ESAutoVectorFormat;
 import org.elasticsearch.index.fielddata.FieldDataContext;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.mapper.ArraySourceValueFetcher;
@@ -1287,6 +1288,23 @@ public class DenseVectorFieldMapper extends FieldMapper {
                 return dims % 2 == 0;
             }
         },
+        AUTO("auto") {
+            @Override
+            public IndexOptions parseIndexOptions(String fieldName, Map<String, ?> indexOptionsMap) {
+                MappingParser.checkNoRemainingFields(fieldName, indexOptionsMap);
+                return new AutoIndexOptions();
+            }
+
+            @Override
+            public boolean supportsElementType(ElementType elementType) {
+                return elementType == ElementType.FLOAT;
+            }
+
+            @Override
+            public boolean supportsDimension(int dims) {
+                return true;
+            }
+        },
         FLAT("flat") {
             @Override
             public IndexOptions parseIndexOptions(String fieldName, Map<String, ?> indexOptionsMap) {
@@ -1458,6 +1476,41 @@ public class DenseVectorFieldMapper extends FieldMapper {
                 || update.type.equals(VectorIndexType.INT8_HNSW)
                 || update.type.equals(VectorIndexType.INT4_HNSW)
                 || update.type.equals(VectorIndexType.INT4_FLAT);
+        }
+    }
+
+    static class AutoIndexOptions extends IndexOptions {
+
+        AutoIndexOptions() {
+            super(VectorIndexType.AUTO);
+        }
+
+        @Override
+        public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
+            builder.startObject();
+            builder.field("type", type);
+            builder.endObject();
+            return builder;
+        }
+
+        @Override
+        KnnVectorsFormat getVectorsFormat(ElementType elementType) {
+            return new ESAutoVectorFormat();
+        }
+
+        @Override
+        boolean updatableTo(IndexOptions update) {
+            return false;
+        }
+
+        @Override
+        public boolean doEquals(IndexOptions o) {
+            return o instanceof AutoIndexOptions;
+        }
+
+        @Override
+        public int doHashCode() {
+            return Objects.hash(type);
         }
     }
 
