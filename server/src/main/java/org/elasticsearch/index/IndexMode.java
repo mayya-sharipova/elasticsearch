@@ -384,6 +384,75 @@ public enum IndexMode {
         public SourceFieldMapper.Mode defaultSourceMode() {
             return SourceFieldMapper.Mode.STORED;
         }
+    },
+    VECTOR_SEARCH("vector_search") {
+        @Override
+        void validateWithOtherSettings(Map<Setting<?>, Object> settings) {
+            IndexMode.validateTimeSeriesSettings(settings);
+        }
+
+        @Override
+        public void validateMapping(MappingLookup lookup) {};
+
+        @Override
+        public void validateAlias(@Nullable String indexRouting, @Nullable String searchRouting) {}
+
+        @Override
+        public void validateTimestampFieldMapping(boolean isDataStream, MappingLookup mappingLookup) throws IOException {
+            if (isDataStream) {
+                MetadataCreateDataStreamService.validateTimestampFieldMapping(mappingLookup);
+            }
+        }
+
+        @Override
+        public CompressedXContent getDefaultMapping(final IndexSettings indexSettings) {
+            return null;
+        }
+
+        @Override
+        public TimestampBounds getTimestampBound(IndexMetadata indexMetadata) {
+            return null;
+        }
+
+        @Override
+        public MetadataFieldMapper timeSeriesIdFieldMapper() {
+            // non time-series indices must not have a TimeSeriesIdFieldMapper
+            return null;
+        }
+
+        @Override
+        public MetadataFieldMapper timeSeriesRoutingHashFieldMapper() {
+            // non time-series indices must not have a TimeSeriesRoutingIdFieldMapper
+            return null;
+        }
+
+        @Override
+        public IdFieldMapper idFieldMapperWithoutFieldData() {
+            return ProvidedIdFieldMapper.NO_FIELD_DATA;
+        }
+
+        @Override
+        public IdFieldMapper buildIdFieldMapper(BooleanSupplier fieldDataEnabled) {
+            return new ProvidedIdFieldMapper(fieldDataEnabled);
+        }
+
+        @Override
+        public DocumentDimensions buildDocumentDimensions(IndexSettings settings) {
+            return DocumentDimensions.Noop.INSTANCE;
+        }
+
+        @Override
+        public boolean shouldValidateTimestamp() {
+            return false;
+        }
+
+        @Override
+        public void validateSourceFieldMapper(SourceFieldMapper sourceFieldMapper) {}
+
+        @Override
+        public SourceFieldMapper.Mode defaultSourceMode() {
+            return SourceFieldMapper.Mode.STORED;
+        }
     };
 
     private static final String HOST_NAME = "host.name";
@@ -554,6 +623,7 @@ public enum IndexMode {
             case "time_series" -> IndexMode.TIME_SERIES;
             case "logsdb" -> IndexMode.LOGSDB;
             case "lookup" -> IndexMode.LOOKUP;
+            case "vector_search" -> IndexMode.VECTOR_SEARCH;
             default -> throw new IllegalArgumentException(
                 "["
                     + value
@@ -571,6 +641,7 @@ public enum IndexMode {
             case 1 -> TIME_SERIES;
             case 2 -> LOGSDB;
             case 3 -> LOOKUP;
+            case 4 -> VECTOR_SEARCH;
             default -> throw new IllegalStateException("unexpected index mode [" + mode + "]");
         };
     }
@@ -581,6 +652,7 @@ public enum IndexMode {
             case TIME_SERIES -> 1;
             case LOGSDB -> 2;
             case LOOKUP -> out.getTransportVersion().onOrAfter(TransportVersions.INDEX_MODE_LOOKUP) ? 3 : 0;
+            case VECTOR_SEARCH -> out.getTransportVersion().onOrAfter(TransportVersions.INDEX_MODE_VECTOR_SEARCH) ? 4 : 0;
         };
         out.writeByte((byte) code);
     }
@@ -617,6 +689,8 @@ public enum IndexMode {
                     .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
                     .put(IndexMetadata.SETTING_AUTO_EXPAND_REPLICAS, "0-all")
                     .build();
+            } else if (indexMode == VECTOR_SEARCH) {
+                return Settings.builder().put(MergePolicyConfig.INDEX_MERGE_POLICY_TYPE_SETTING.getKey(), "vector_search").build();
             } else {
                 return Settings.EMPTY;
             }

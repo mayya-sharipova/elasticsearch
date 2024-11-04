@@ -2718,7 +2718,7 @@ public class InternalEngine extends Engine {
                 new PrunePostingsMergePolicy(mergePolicy, IdFieldMapper.NAME)
             )
         );
-        if (SHUFFLE_FORCE_MERGE) {
+        if (SHUFFLE_FORCE_MERGE && engineConfig.getIndexSettings().getMode() != IndexMode.VECTOR_SEARCH) {
             // We wrap the merge policy for all indices even though it is mostly useful for time-based indices
             // but there should be no overhead for other type of indices so it's simpler than adding a setting
             // to enable it.

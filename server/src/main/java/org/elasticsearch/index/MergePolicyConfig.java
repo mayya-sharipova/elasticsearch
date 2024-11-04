@@ -104,6 +104,7 @@ import org.elasticsearch.core.SuppressForbidden;
 
 public final class MergePolicyConfig {
     private final TieredMergePolicy tieredMergePolicy = new TieredMergePolicy();
+    private final VectorSearchMergePolicy vectorSearchMergePolicy = new VectorSearchMergePolicy();
     /**
      * A merge policy that optimizes for time-based data. It uses Lucene's LogByteSizeMergePolicy, which only merges adjacent segments. In
      * turn, this creates segments that have non-overlapping @timestamp ranges if data gets ingested in order.
@@ -195,6 +196,12 @@ public final class MergePolicyConfig {
             @Override
             MergePolicy getMergePolicy(MergePolicyConfig config, boolean isTimeBasedIndex) {
                 return config.timeBasedMergePolicy;
+            }
+        },
+        VECTOR_SEARCH {
+            @Override
+            MergePolicy getMergePolicy(MergePolicyConfig config, boolean isTimeBasedIndex) {
+                return config.vectorSearchMergePolicy;
             }
         };
 
