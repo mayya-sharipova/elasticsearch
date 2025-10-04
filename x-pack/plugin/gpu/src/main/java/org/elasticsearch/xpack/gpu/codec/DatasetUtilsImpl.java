@@ -21,6 +21,7 @@ public class DatasetUtilsImpl implements DatasetUtils {
     private static final DatasetUtils INSTANCE = new DatasetUtilsImpl();
 
     private static final MethodHandle createDataset$mh = CuVSProvider.provider().newNativeMatrixBuilder();
+    private static final MethodHandle createDatasetWithStrides$mh = CuVSProvider.provider().newNativeMatrixBuilderWithStrides();
 
     static DatasetUtils getInstance() {
         return INSTANCE;
@@ -40,6 +41,26 @@ public class DatasetUtilsImpl implements DatasetUtils {
         }
     }
 
+    static CuVSMatrix fromMemorySegment(
+        MemorySegment memorySegment,
+        int size,
+        int dimensions,
+        CuVSMatrix.DataType dataType,
+        int rawStride
+    ) {
+        try {
+            return (CuVSMatrix) createDatasetWithStrides$mh.invokeExact(memorySegment, size, dimensions, rawStride, -1, dataType);
+        } catch (Throwable e) {
+            if (e instanceof Error err) {
+                throw err;
+            } else if (e instanceof RuntimeException re) {
+                throw re;
+            } else {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     private DatasetUtilsImpl() {}
 
     @Override
@@ -48,6 +69,15 @@ public class DatasetUtilsImpl implements DatasetUtils {
             throwIllegalArgumentException(numVectors, dims);
         }
         return createCuVSMatrix(input, 0L, input.length(), numVectors, dims, dataType);
+    }
+
+    @Override
+    public CuVSMatrix fromInput(MemorySegmentAccessInput input, int numVectors, int dims, CuVSMatrix.DataType dataType, int rawStride)
+        throws IOException {
+        if (numVectors < 0 || dims < 0) {
+            throwIllegalArgumentException(numVectors, dims);
+        }
+        return createCuVSMatrix(input, 0L, input.length(), numVectors, dims, dataType, rawStride);
     }
 
     @Override
@@ -74,6 +104,23 @@ public class DatasetUtilsImpl implements DatasetUtils {
             throwIllegalArgumentException(ms, numVectors, dims);
         }
         return fromMemorySegment(ms, numVectors, dims, dataType);
+    }
+
+    private static CuVSMatrix createCuVSMatrix(
+        MemorySegmentAccessInput input,
+        long pos,
+        long len,
+        int numVectors,
+        int dims,
+        CuVSMatrix.DataType dataType,
+        int rawStride
+    ) throws IOException {
+        MemorySegment ms = input.segmentSliceOrNull(pos, len);
+        assert ms != null;
+        if (((long) numVectors * rawStride) > ms.byteSize()) {
+            throwIllegalArgumentException(ms, numVectors, dims);
+        }
+        return fromMemorySegment(ms, numVectors, dims, dataType, rawStride);
     }
 
     static void throwIllegalArgumentException(MemorySegment ms, int numVectors, int dims) {
