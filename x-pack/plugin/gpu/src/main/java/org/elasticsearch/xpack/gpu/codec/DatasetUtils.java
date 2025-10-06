@@ -22,7 +22,7 @@ public interface DatasetUtils {
     /** Returns a Dataset over the vectors of type {@code dataType} in the input. */
     CuVSMatrix fromInput(MemorySegmentAccessInput input, int numVectors, int dims, CuVSMatrix.DataType dataType) throws IOException;
 
-    CuVSMatrix fromInput(MemorySegmentAccessInput input, int numVectors, int dims, CuVSMatrix.DataType dataType, int rawStride)
+    CuVSMatrix fromInput(MemorySegmentAccessInput input, int numVectors, int dims, CuVSMatrix.DataType dataType, int rowStride)
         throws IOException;
 
     /** Returns a Dataset over an input slice */

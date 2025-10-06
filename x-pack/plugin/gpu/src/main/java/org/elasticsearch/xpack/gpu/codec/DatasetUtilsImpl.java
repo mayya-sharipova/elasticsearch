@@ -46,10 +46,10 @@ public class DatasetUtilsImpl implements DatasetUtils {
         int size,
         int dimensions,
         CuVSMatrix.DataType dataType,
-        int rawStride
+        int rowStride
     ) {
         try {
-            return (CuVSMatrix) createDatasetWithStrides$mh.invokeExact(memorySegment, size, dimensions, rawStride, -1, dataType);
+            return (CuVSMatrix) createDatasetWithStrides$mh.invokeExact(memorySegment, size, dimensions, rowStride, 1, dataType);
         } catch (Throwable e) {
             if (e instanceof Error err) {
                 throw err;
@@ -72,12 +72,12 @@ public class DatasetUtilsImpl implements DatasetUtils {
     }
 
     @Override
-    public CuVSMatrix fromInput(MemorySegmentAccessInput input, int numVectors, int dims, CuVSMatrix.DataType dataType, int rawStride)
+    public CuVSMatrix fromInput(MemorySegmentAccessInput input, int numVectors, int dims, CuVSMatrix.DataType dataType, int rowStride)
         throws IOException {
         if (numVectors < 0 || dims < 0) {
             throwIllegalArgumentException(numVectors, dims);
         }
-        return createCuVSMatrix(input, 0L, input.length(), numVectors, dims, dataType, rawStride);
+        return createCuVSMatrix(input, 0L, input.length(), numVectors, dims, dataType, rowStride);
     }
 
     @Override
@@ -113,14 +113,14 @@ public class DatasetUtilsImpl implements DatasetUtils {
         int numVectors,
         int dims,
         CuVSMatrix.DataType dataType,
-        int rawStride
+        int rowStride
     ) throws IOException {
         MemorySegment ms = input.segmentSliceOrNull(pos, len);
         assert ms != null;
-        if (((long) numVectors * rawStride) > ms.byteSize()) {
+        if (((long) numVectors * rowStride) > ms.byteSize()) {
             throwIllegalArgumentException(ms, numVectors, dims);
         }
-        return fromMemorySegment(ms, numVectors, dims, dataType, rawStride);
+        return fromMemorySegment(ms, numVectors, dims, dataType, rowStride);
     }
 
     static void throwIllegalArgumentException(MemorySegment ms, int numVectors, int dims) {

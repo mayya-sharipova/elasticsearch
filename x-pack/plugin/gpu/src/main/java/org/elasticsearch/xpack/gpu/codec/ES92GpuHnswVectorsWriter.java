@@ -459,9 +459,9 @@ final class ES92GpuHnswVectorsWriter extends KnnVectorsWriter {
                         final CuVSMatrix dataset;
                         if (dataType == CuVSMatrix.DataType.BYTE) {
                             // for int8_hnsw, the raw vector data has extra 4-byte at the end of each vector to encode a correction constant
-                            int rawStride = fieldInfo.getVectorDimension() + 4;
+                            int rowStride = fieldInfo.getVectorDimension() + 4;
                             dataset = DatasetUtils.getInstance()
-                                .fromInput(memorySegmentAccessInput, numVectors, fieldInfo.getVectorDimension(), dataType, rawStride);
+                                .fromInput(memorySegmentAccessInput, numVectors, fieldInfo.getVectorDimension(), dataType, rowStride);
                         } else {
                             dataset = DatasetUtils.getInstance()
                                 .fromInput(memorySegmentAccessInput, numVectors, fieldInfo.getVectorDimension(), dataType);
