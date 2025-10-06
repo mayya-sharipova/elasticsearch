@@ -458,55 +458,55 @@ final class ES92GpuHnswVectorsWriter extends KnnVectorsWriter {
                 if (input instanceof MemorySegmentAccessInput memorySegmentAccessInput) {
                     int numVectors = s.totalVectorCount();
                     if (numVectors >= MIN_NUM_VECTORS_FOR_GPU_BUILD) {
-                        if (dataType == CuVSMatrix.DataType.BYTE) {
-                            // for int8_hnsw, the raw vector data has extra 4-byte at the end of each vector to encode a correction constant
-                            int originalRowStride = fieldInfo.getVectorDimension() + 4;
-                            // The GPU requires the data to be aligned. We copy the data to a new native memory segment with 64-byte
-                            // alignment.
-                            int paddedRowStride = (originalRowStride + 63) & -64;
-                            try (var arena = Arena.ofConfined()) {
-                                var alignedSegment = arena.allocate((long) paddedRowStride * numVectors, 64);
+                        CuVSMatrix dataset;
+                        Arena arena = null;
+                        try {
+                            if (dataType == CuVSMatrix.DataType.BYTE) {
+                                // for int8_hnsw, the raw vector data has extra 4-byte at the end of each vector to encode a correction
+                                // constant
+                                int originalRowStride = fieldInfo.getVectorDimension() + 4;
+                                long vectorDataOnlySize = (long) numVectors * fieldInfo.getVectorDimension();
+
+                                // The GPU requires the data to be aligned. We copy only the vector data to a new, tightly-packed native
+                                // segment.
+                                arena = Arena.ofConfined();
+                                var packedSegment = arena.allocate(vectorDataOnlySize, 64);
                                 MemorySegment sourceSegment = memorySegmentAccessInput.segmentSliceOrNull(
                                     0,
                                     memorySegmentAccessInput.length()
                                 );
+
                                 for (int i = 0; i < numVectors; i++) {
                                     MemorySegment.copy(
                                         sourceSegment,
                                         (long) i * originalRowStride,
-                                        alignedSegment,
-                                        (long) i * paddedRowStride,
+                                        packedSegment,
+                                        (long) i * fieldInfo.getVectorDimension(),
                                         fieldInfo.getVectorDimension()
                                     );
                                 }
-                                try (
-                                    var dataset = DatasetUtilsImpl.fromMemorySegment(
-                                        alignedSegment,
-                                        numVectors,
-                                        fieldInfo.getVectorDimension(),
-                                        dataType,
-                                        paddedRowStride
-                                    )
-                                ) {
-                                    var cuVSResources = cuVSResourceManager.acquire(numVectors, fieldInfo.getVectorDimension(), dataType);
-                                    try {
-                                        generateGpuGraphAndWriteMeta(cuVSResources, fieldInfo, dataset);
-                                    } finally {
-                                        cuVSResourceManager.release(cuVSResources);
-                                    }
-                                }
+                                dataset = DatasetUtilsImpl.fromMemorySegment(
+                                    packedSegment,
+                                    numVectors,
+                                    fieldInfo.getVectorDimension(),
+                                    dataType
+                                );
+                            } else {
+                                dataset = DatasetUtils.getInstance()
+                                    .fromInput(memorySegmentAccessInput, numVectors, fieldInfo.getVectorDimension(), dataType);
                             }
-                        } else {
-                            try (
-                                var dataset = DatasetUtils.getInstance()
-                                    .fromInput(memorySegmentAccessInput, numVectors, fieldInfo.getVectorDimension(), dataType)
-                            ) {
+
+                            try (dataset) {
                                 var cuVSResources = cuVSResourceManager.acquire(numVectors, fieldInfo.getVectorDimension(), dataType);
                                 try {
                                     generateGpuGraphAndWriteMeta(cuVSResources, fieldInfo, dataset);
                                 } finally {
                                     cuVSResourceManager.release(cuVSResources);
                                 }
+                            }
+                        } finally {
+                            if (arena != null) {
+                                arena.close();
                             }
                         }
                     } else {
