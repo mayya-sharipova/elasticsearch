@@ -206,6 +206,58 @@ public class GPUIndexIT extends ESIntegTestCase {
         assertSearch(indexName, randomFloatVector(dims), numDocs);
     }
 
+    public void testDeletesUpdates() {
+        String indexName = "index_deletes_updates";
+        final int dims = randomIntBetween(4, 128);
+        createIndex(indexName, dims, false);
+
+        final int numDocs = randomIntBetween(500, 1000);
+        indexDocs(indexName, numDocs, dims, 0);
+        refresh();
+
+        // Perform random updates and deletes
+        final int numOperations = randomIntBetween(10, 50);
+        BulkRequestBuilder bulkRequest = client().prepareBulk();
+        for (int i = 0; i < numOperations; i++) {
+            int docId = randomIntBetween(0, numDocs - 1);
+            if (randomBoolean()) {
+                bulkRequest.add(
+                    prepareIndex(indexName).setId(String.valueOf(docId))
+                        .setSource("my_vector", randomFloatVector(dims), "my_keyword", String.valueOf(randomIntBetween(1, numDocs)))
+                );
+            } else {
+                bulkRequest.add(client().prepareDelete(indexName, String.valueOf(docId)));
+            }
+        }
+        BulkResponse bulkResponse = bulkRequest.get();
+        assertFalse("Bulk request failed: " + bulkResponse.buildFailureMessage(), bulkResponse.hasFailures());
+        refresh();
+
+        // Assert that approximate and exact searches return same sets of results
+        float[] queryVector = randomFloatVector(dims);
+        int k = 10;
+        int numCandidates = k * 5;
+
+        var approxSearchResponse = prepareSearch(indexName).setSize(k)
+            .setFetchSource(false)
+            .setKnnSearch(List.of(new KnnSearchBuilder("my_vector", queryVector, k, numCandidates, null, null, null)))
+            .get();
+
+        var exactSearchResponse = prepareSearch(indexName).setSize(k)
+            .setFetchSource(false)
+            .setQuery(new ExactKnnQueryBuilder(VectorData.fromFloats(queryVector), "my_vector", null))
+            .get();
+
+        try {
+            SearchHit[] hits1 = approxSearchResponse.getHits().getHits();
+            SearchHit[] exactHits = exactSearchResponse.getHits().getHits();
+            assertAtLeastNOutOfKMatches(hits1, exactHits, k - 3, k);
+        } finally {
+            approxSearchResponse.decRef();
+            exactSearchResponse.decRef();
+        }
+    }
+
     public void testInt8HnswMaxInnerProductProductFails() {
         String indexName = "index_int8_max_inner_product_fails";
         final int dims = randomIntBetween(4, 128);
