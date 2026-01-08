@@ -9,6 +9,8 @@
 
 package org.elasticsearch.gpu.codec;
 
+import com.carrotsearch.randomizedtesting.generators.RandomPicks;
+
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
@@ -18,6 +20,8 @@ import org.apache.lucene.tests.util.TestUtil;
 import org.elasticsearch.common.logging.LogConfigurator;
 import org.elasticsearch.gpu.GPUSupport;
 import org.junit.BeforeClass;
+
+import java.util.List;
 
 // CuVS prints tons of logs to stdout
 @LuceneTestCase.SuppressSysoutChecks(bugUrl = "https://github.com/rapidsai/cuvs/issues/1310")
@@ -43,7 +47,15 @@ public class ES92GpuHnswVectorsFormatTests extends BaseKnnVectorsFormatTestCase 
 
     @Override
     protected VectorSimilarityFunction randomSimilarity() {
-        return VectorSimilarityFunction.values()[random().nextInt(VectorSimilarityFunction.values().length)];
+        // COSINE is substituted with DOT_PRODUCT before reaching the GPU codec
+        return RandomPicks.randomFrom(
+            random(),
+            List.of(
+                VectorSimilarityFunction.DOT_PRODUCT,
+                VectorSimilarityFunction.EUCLIDEAN,
+                VectorSimilarityFunction.MAXIMUM_INNER_PRODUCT
+            )
+        );
     }
 
     @Override

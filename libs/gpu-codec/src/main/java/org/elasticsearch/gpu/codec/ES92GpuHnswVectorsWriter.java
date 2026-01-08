@@ -332,8 +332,9 @@ final class ES92GpuHnswVectorsWriter extends KnnVectorsWriter {
     }
 
     private CagraIndexParams createCagraIndexParams(VectorSimilarityFunction similarityFunction, int numVectors, int dims) {
+        assert similarityFunction != VectorSimilarityFunction.COSINE
+            : "COSINE should never be used; it should be substituted with DOT_PRODUCT before";
         CagraIndexParams.CuvsDistanceType distanceType = switch (similarityFunction) {
-            case COSINE -> CagraIndexParams.CuvsDistanceType.CosineExpanded;
             case EUCLIDEAN -> CagraIndexParams.CuvsDistanceType.L2Expanded;
             case DOT_PRODUCT -> {
                 if (dataType == CuVSMatrix.DataType.BYTE) {
@@ -345,6 +346,7 @@ final class ES92GpuHnswVectorsWriter extends KnnVectorsWriter {
                 assert dataType != CuVSMatrix.DataType.BYTE;
                 yield CagraIndexParams.CuvsDistanceType.InnerProduct;
             }
+            default -> throw new IllegalArgumentException("Unsupported similarity function: " + similarityFunction);
         };
 
         int numCPUThreads = 1; // TODO: how many CPU threads we can use?
