@@ -48,11 +48,11 @@ public class OnnxTokenFilterFactory extends AbstractTokenFilterFactory {
         String clsToken = settings.get("cls_token");  // null if not specified
         String sepToken = settings.get("sep_token");  // null if not specified
 
-        if (modelPath == null) {
-            throw new IllegalArgumentException("onnx_bert token filter requires 'model' setting");
-        }
-        if (tokenizerPath == null) {
-            throw new IllegalArgumentException("onnx_bert token filter requires 'tokenizer' setting");
+        // Defer validation - allows ES to probe the filter type without errors
+        // Actual validation happens when the filter is used
+        if (modelPath == null || tokenizerPath == null) {
+            this.engine = null;
+            return;
         }
 
         Path modelFile = env.configDir().resolve(modelPath);
@@ -63,6 +63,9 @@ public class OnnxTokenFilterFactory extends AbstractTokenFilterFactory {
 
     @Override
     public TokenStream create(TokenStream tokenStream) {
+        if (engine == null) {
+            throw new IllegalArgumentException("onnx_bert token filter requires 'model' and 'tokenizer' settings");
+        }
         return new OnnxTokenFilter(tokenStream, engine);
     }
 }
