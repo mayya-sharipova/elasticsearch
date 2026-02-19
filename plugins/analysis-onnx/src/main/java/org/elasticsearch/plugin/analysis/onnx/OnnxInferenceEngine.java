@@ -61,6 +61,8 @@ public class OnnxInferenceEngine implements AutoCloseable {
 
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
             opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+            opts.setInterOpNumThreads(1);
+            opts.setIntraOpNumThreads(1);
 
             this.session = env.createSession(modelPath.toString(), opts);
             this.tokenizer = TokenizerFactory.fromConfig(tokenizerConfigPath);
