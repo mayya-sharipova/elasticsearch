@@ -33,7 +33,7 @@ import java.util.List;
  * Input exceeding this limit will be truncated, losing tokens beyond position 512.
  * For long documents, consider splitting into smaller fields or sentences.
  */
-public class OnnxTokenFilter extends TokenFilter {
+public final class OnnxTokenFilter extends TokenFilter {
 
     private final OnnxInferenceEngine engine;
     private final CharTermAttribute termAttr = addAttribute(CharTermAttribute.class);

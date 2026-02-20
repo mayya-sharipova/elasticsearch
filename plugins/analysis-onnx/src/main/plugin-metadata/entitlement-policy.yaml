@@ -1,2 +1,13 @@
+# Entitlement policy for ONNX Analysis Plugin
+
+org.elasticsearch.analysis.onnx:
+  - load_native_libraries
+  - manage_threads
+  - files:
+      - relative_path: analysis-onnx
+        relative_to: config
+        mode: read
+
 com.microsoft.onnxruntime:
   - load_native_libraries
+  - manage_threads

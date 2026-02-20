@@ -15,8 +15,98 @@ esplugin {
   classname = 'org.elasticsearch.plugin.analysis.onnx.AnalysisOnnxPlugin'
 }
 
+def onnxRuntimeVersion = '1.17.0'
+def patchedJarPath = "${buildDir}/patched/onnxruntime-${onnxRuntimeVersion}-patched.jar"
+
+configurations {
+  onnxruntimeOriginal {
+    canBeConsumed = false
+    canBeResolved = true
+  }
+}
+
 dependencies {
-  api 'com.microsoft.onnxruntime:onnxruntime:1.17.0'
+  onnxruntimeOriginal "com.microsoft.onnxruntime:onnxruntime:${onnxRuntimeVersion}"
+  // Use original for compilation, patched version at runtime
+  compileOnly "com.microsoft.onnxruntime:onnxruntime:${onnxRuntimeVersion}"
+}
+
+// Task to patch ONNX Runtime JAR - removes shutdown hook registration
+tasks.register("patchOnnxRuntime") {
+  inputs.files(configurations.onnxruntimeOriginal)
+  outputs.file(patchedJarPath)
+  doLast {
+    def originalJar = configurations.onnxruntimeOriginal.singleFile
+    def outputFile = file(patchedJarPath)
+    outputFile.parentFile.mkdirs()
+
+    def jar = new java.util.jar.JarFile(originalJar)
+    def jos = new java.util.jar.JarOutputStream(
+      new java.io.BufferedOutputStream(new java.io.FileOutputStream(outputFile))
+    )
+    try {
+      def entries = jar.entries()
+      while (entries.hasMoreElements()) {
+        def entry = entries.nextElement()
+        def inStream = new java.io.BufferedInputStream(jar.getInputStream(entry))
+        def entryName = entry.getName()
+
+        def newEntry = new java.util.jar.JarEntry(entryName)
+        jos.putNextEntry(newEntry)
+
+        if (entryName == "ai/onnxruntime/OrtEnvironment.class") {
+          // Patch OrtEnvironment to remove shutdown hook registration
+          def bytes = inStream.bytes
+          def cr = new org.objectweb.asm.ClassReader(bytes)
+          def cw = new org.objectweb.asm.ClassWriter(cr, org.objectweb.asm.ClassWriter.COMPUTE_FRAMES)
+          def cv = new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9, cw) {
+            @Override
+            org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] exceptions) {
+              def mv = super.visitMethod(access, name, desc, sig, exceptions)
+              if (name == "<init>") {
+                return new org.objectweb.asm.MethodVisitor(org.objectweb.asm.Opcodes.ASM9, mv) {
+                  @Override
+                  void visitMethodInsn(int opcode, String owner, String mName, String mDesc, boolean itf) {
+                    if (opcode == org.objectweb.asm.Opcodes.INVOKEVIRTUAL
+                        && owner == "java/lang/Runtime"
+                        && mName == "addShutdownHook") {
+                      // Drop Runtime and Thread from stack, skip hook registration
+                      super.visitInsn(org.objectweb.asm.Opcodes.POP2)
+                      return
+                    }
+                    super.visitMethodInsn(opcode, owner, mName, mDesc, itf)
+                  }
+                }
+              }
+              return mv
+            }
+          }
+          cr.accept(cv, org.objectweb.asm.ClassReader.SKIP_FRAMES)
+          jos.write(cw.toByteArray())
+          logger.lifecycle("Patched OrtEnvironment.class: removed shutdown hook registration")
+        } else {
+          // Copy unchanged
+          byte[] buffer = new byte[8192]
+          int read
+          while ((read = inStream.read(buffer)) != -1) {
+            jos.write(buffer, 0, read)
+          }
+        }
+        jos.closeEntry()
+        inStream.close()
+      }
+    } finally {
+      jos.close()
+      jar.close()
+    }
+  }
+}
+
+compileJava.dependsOn tasks.named("patchOnnxRuntime")
+processResources.dependsOn tasks.named("patchOnnxRuntime")
+
+dependencies {
+  runtimeOnly files(patchedJarPath)
 }
 
 restResources {
@@ -28,3 +118,10 @@ restResources {
 tasks.named("dependencyLicenses").configure {
   mapping from: /onnxruntime.*/, to: 'onnxruntime'
 }
+
+// Include APM module for telemetry settings support in test clusters
+testClusters.configureEach {
+  module ':modules:apm'
+}
+
+
