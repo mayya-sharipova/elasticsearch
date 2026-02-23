@@ -12,6 +12,7 @@ module org.elasticsearch.analysis.onnx {
     requires org.elasticsearch.server;
     requires org.elasticsearch.xcontent;
     requires org.apache.lucene.core;
+    requires org.apache.logging.log4j;
     requires com.microsoft.onnxruntime;
 
     // exports nothing (internal plugin)

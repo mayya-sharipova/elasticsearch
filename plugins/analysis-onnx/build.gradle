@@ -27,8 +27,9 @@ configurations {
 
 dependencies {
   onnxruntimeOriginal "com.microsoft.onnxruntime:onnxruntime:${onnxRuntimeVersion}"
-  // Use original for compilation, patched version at runtime
-  compileOnly "com.microsoft.onnxruntime:onnxruntime:${onnxRuntimeVersion}"
+  // Use implementation for compilation and license checking
+  // (compileOnly would be subtracted from runtimeClasspath in license check)
+  implementation "com.microsoft.onnxruntime:onnxruntime:${onnxRuntimeVersion}"
 }
 
 // Task to patch ONNX Runtime JAR - removes shutdown hook registration
@@ -105,8 +106,13 @@ tasks.register("patchOnnxRuntime") {
 compileJava.dependsOn tasks.named("patchOnnxRuntime")
 processResources.dependsOn tasks.named("patchOnnxRuntime")
 
-dependencies {
-  runtimeOnly files(patchedJarPath)
+// Replace original ONNX Runtime with patched version in the plugin bundle
+tasks.named("bundlePlugin").configure {
+  from(patchedJarPath) {
+    into 'elasticsearch'
+  }
+  // Exclude the original onnxruntime JAR - we use the patched one
+  exclude '**/onnxruntime-*.jar'
 }
 
 restResources {
@@ -122,6 +128,42 @@ tasks.named("dependencyLicenses").configure {
 // Include APM module for telemetry settings support in test clusters
 testClusters.configureEach {
   module ':modules:apm'
+}
+
+// Enable preview features for Panama FFI (java.lang.foreign)
+// Following the pattern from elasticsearch.mrjar plugin
+tasks.withType(JavaCompile).configureEach {
+  options.compilerArgs += ['--enable-preview', '-Xlint:-preview']
+
+  // Strip preview flag from bytecode so runtime doesn't require --enable-preview
+  doLast {
+    def classesDir = destinationDirectory.get().asFile.toPath()
+    if (java.nio.file.Files.exists(classesDir)) {
+      java.nio.file.Files.walk(classesDir)
+        .filter { it.toString().endsWith('.class') }
+        .forEach { classFile ->
+          def bytes = java.nio.file.Files.readAllBytes(classFile)
+          def cr = new org.objectweb.asm.ClassReader(bytes)
+          def cn = new org.objectweb.asm.tree.ClassNode()
+          cr.accept(cn, 0)
+
+          // Check if preview flag is set (V_PREVIEW = 0xFFFF0000)
+          if ((cn.version & 0xFFFF0000) != 0) {
+            cn.version = cn.version & 0x0000FFFF  // Strip preview flag
+            def cw = new org.objectweb.asm.ClassWriter(0)
+            cn.accept(cw)
+            java.nio.file.Files.write(classFile, cw.toByteArray())
+          }
+        }
+    }
+  }
+}
+
+// Enable preview features for javadoc
+tasks.withType(Javadoc).configureEach {
+  def jdkVersion = Integer.parseInt(JavaVersion.current().majorVersion)
+  options.addBooleanOption('-enable-preview', true)
+  options.addStringOption('-release', String.valueOf(jdkVersion))
 }
 
 

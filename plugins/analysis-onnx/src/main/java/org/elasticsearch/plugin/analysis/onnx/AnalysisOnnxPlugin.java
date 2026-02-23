@@ -17,13 +17,22 @@ import org.elasticsearch.plugins.Plugin;
 import java.util.Map;
 
 /**
- * Plugin that provides ONNX token filter for BERT-style model inference in analysis chains.
- * Registers the "onnx_bert" token filter type that can be used with any tokenizer.
+ * Plugin that provides ONNX token filters for BERT-style model inference in analysis chains.
+ *
+ * <p>Registers two token filter types:
+ * <ul>
+ *   <li>{@code onnx_bert} - Uses ONNX Runtime Java wrapper (patched to remove shutdown hook)</li>
+ *   <li>{@code onnx_bert_native} - Uses native FFI via Panama Foreign Function &amp; Memory API</li>
+ * </ul>
+ *
+ * <p>The native implementation ({@code onnx_bert_native}) bypasses the Java wrapper entirely,
+ * calling ONNX Runtime C API directly. This avoids shutdown hook issues but requires the
+ * ONNX Runtime native library to be installed on the system.
  */
 public class AnalysisOnnxPlugin extends Plugin implements AnalysisPlugin {
 
     @Override
     public Map<String, AnalysisProvider<TokenFilterFactory>> getTokenFilters() {
-        return Map.of("onnx_bert", OnnxTokenFilterFactory::new);
+        return Map.of("onnx_bert", OnnxTokenFilterFactory::new, "onnx_bert_native", OnnxNativeTokenFilterFactory::new);
     }
 }
