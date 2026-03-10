@@ -127,6 +127,13 @@ public class MergePolicyConfigTests extends ESTestCase {
             newIndexMeta("index", Settings.builder().put(MergePolicyConfig.INDEX_MERGE_POLICY_TYPE_SETTING.getKey(), "time_based").build())
         );
         assertThat(indexSettings.getMergePolicy(randomBoolean()), Matchers.instanceOf(LogByteSizeMergePolicy.class));
+        indexSettings.updateIndexMetadata(
+            newIndexMeta(
+                "index",
+                Settings.builder().put(MergePolicyConfig.INDEX_MERGE_POLICY_TYPE_SETTING.getKey(), "merge_to_largest").build()
+            )
+        );
+        assertThat(indexSettings.getMergePolicy(randomBoolean()), Matchers.instanceOf(TieredMergeToLargestPolicy.class));
     }
 
     public void testTieredMergePolicySettingsUpdate() {
