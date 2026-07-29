@@ -164,4 +164,59 @@ public class IntBitmapIndexBKDQueryTests extends ESTestCase {
         reader.close();
         dir.close();
     }
+
+    /**
+     * Cross-checks against a brute-force count over randomized bitmaps, each holding a wide run with
+     * random holes so that cells both inside a run and straddling a gap arise at any BKD leaf size.
+     */
+    public void testRandomizedAgainstBruteForce() throws IOException {
+        Directory dir = newDirectory();
+        RandomIndexWriter w = new RandomIndexWriter(random(), dir);
+        int numDocs = atLeast(3000);
+        int maxValue = randomIntBetween(200, 2000);
+        int[] docValues = new int[numDocs];
+        for (int i = 0; i < numDocs; i++) {
+            docValues[i] = randomIntBetween(0, maxValue);
+            Document doc = new Document();
+            doc.add(new IntPoint(FIELD, docValues[i]));
+            w.addDocument(doc);
+        }
+        IndexReader reader = w.getReader();
+        IndexSearcher searcher = newSearcher(reader);
+
+        for (int iter = 0; iter < 20; iter++) {
+            RoaringBitmap bitmap = new RoaringBitmap();
+            // A wide run, plus holes in it, so whole cells fall inside a run and other cells straddle
+            // a gap. Both outcomes of the range check are exercised on every iteration.
+            int runStart = randomIntBetween(0, maxValue / 8);
+            int runEnd = randomIntBetween(maxValue - maxValue / 8, maxValue);
+            bitmap.add(runStart, runEnd + 1L);
+            for (int holes = randomIntBetween(1, 5); holes > 0; holes--) {
+                bitmap.remove(randomIntBetween(runStart, runEnd));
+            }
+            // Narrower runs and singletons outside the wide run keep the per-value path covered.
+            for (int r = randomIntBetween(0, 3); r > 0; r--) {
+                int start = randomIntBetween(0, maxValue);
+                bitmap.add((long) start, Math.min(start + randomIntBetween(1, 50), maxValue + 1L));
+            }
+            for (int s = randomIntBetween(0, 20); s > 0; s--) {
+                bitmap.add(randomIntBetween(0, maxValue));
+            }
+            if (randomBoolean()) {
+                bitmap.runOptimize();
+            }
+
+            int expected = 0;
+            for (int value : docValues) {
+                if (bitmap.contains(value)) {
+                    expected++;
+                }
+            }
+            assertThat("bitmap=" + bitmap, searcher.count(new IntBitmapIndexBKDQuery(FIELD, bitmap)), equalTo(expected));
+        }
+
+        w.close();
+        reader.close();
+        dir.close();
+    }
 }

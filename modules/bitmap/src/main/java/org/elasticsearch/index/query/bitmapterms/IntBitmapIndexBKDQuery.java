@@ -226,13 +226,16 @@ public class IntBitmapIndexBKDQuery extends Query {
                     return Relation.CELL_OUTSIDE_QUERY;
                 }
 
-                if (cmpMin == 0 && cmpMax == 0) {
-                    // cell min and max are exactly equal to our point,
-                    // which can easily happen if many (> 512) docs share this one value
-                    return Relation.CELL_INSIDE_QUERY;
-                } else {
-                    return Relation.CELL_CROSSES_QUERY;
+                if (cmpMin == 0) {
+                    int cellMin = IntPoint.decodeDimension(minPackedValue, 0);
+                    int cellMax = IntPoint.decodeDimension(maxPackedValue, 0);
+                    // The whole cell matches if the bitmap holds every value in it, letting Lucene add
+                    // its docs in bulk. contains() takes an exclusive upper bound; values are non-negative.
+                    if (cellMin == cellMax || bitmap.contains(cellMin, cellMax + 1L)) {
+                        return Relation.CELL_INSIDE_QUERY;
+                    }
                 }
+                return Relation.CELL_CROSSES_QUERY;
             }
 
             // We exhausted all points in the bitmap
