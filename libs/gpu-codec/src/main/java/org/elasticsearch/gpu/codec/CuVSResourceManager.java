@@ -91,6 +91,7 @@ public interface CuVSResourceManager {
     static long estimateNNDescentMemory(int numVectors, int dims, CuVSMatrix.DataType dataType) {
         int elementTypeBytes = switch (dataType) {
             case FLOAT -> Float.BYTES;
+            case HALF -> Short.BYTES;
             case INT, UINT -> Integer.BYTES;
             case BYTE -> Byte.BYTES;
         };
@@ -269,6 +270,7 @@ public interface CuVSResourceManager {
                 // See https://docs.rapids.ai/api/cuvs/nightly/neighbors/ivfpq/#index-device-memory
                 int elementTypeBytes = switch (dataType) {
                     case FLOAT -> Float.BYTES;
+                    case HALF -> Short.BYTES;
                     case INT, UINT -> Integer.BYTES;
                     case BYTE -> Byte.BYTES;
                 };
@@ -419,6 +421,11 @@ public interface CuVSResourceManager {
         @Override
         public Path tempDirectory() {
             return null;
+        }
+
+        @Override
+        public void setWorkspacePool(long initialSizeBytes) {
+            delegate.setWorkspacePool(initialSizeBytes);
         }
 
         @Override

@@ -443,6 +443,11 @@ public class CuVSResourceManagerTests extends ESTestCase {
         }
 
         @Override
+        public void setWorkspacePool(long initialSizeBytes) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public String toString() {
             return "MockCuVSResources[id=" + id + "]";
         }
