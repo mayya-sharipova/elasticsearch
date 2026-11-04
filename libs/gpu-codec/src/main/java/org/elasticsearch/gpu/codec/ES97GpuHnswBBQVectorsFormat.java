@@ -36,8 +36,9 @@ import static org.elasticsearch.index.mapper.vectors.DenseVectorFieldMapper.MAX_
  * The on-disk format is identical to {@link ES93HnswBinaryQuantizedVectorsFormat}, and the format reuses its name,
  * so segments written on a GPU node are read (and merged) by the CPU format on nodes without a GPU.
  * <p>
- * Unlike {@link ES92GpuHnswSQVectorsFormat}, the graph is always built from the raw float32 vectors:
- * 1-bit codes with per-vector corrective terms can't be used directly as a CAGRA dataset.
+ * On flush, the graph is built from the raw float32 vectors. On merge, it's built from the quantized vectors when the
+ * dimension allows it: the 1-bit vectors scored against 4-bit vectors, as the CPU merge does, see {@link BbqGpuDataset};
+ * otherwise from the raw float32 vectors.
  * <p>
  * Like the CPU format, it skips the graph for small segments, see
  * {@link ES93HnswBinaryQuantizedVectorsFormat#BBQ_HNSW_GRAPH_THRESHOLD}.

@@ -46,6 +46,7 @@ import org.apache.lucene.util.hnsw.OnHeapHnswGraph;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.packed.DirectMonotonicWriter;
 import org.apache.lucene.util.quantization.BaseQuantizedByteVectorValues;
+import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
 import org.apache.lucene.util.quantization.QuantizedVectorsReader;
 import org.elasticsearch.core.IOUtils;
 import org.elasticsearch.core.Strings;
@@ -101,6 +102,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
 
     private final List<FieldWriter> fields = new ArrayList<>();
     private final CuVSMatrix.DataType dataType;
+    private final boolean isBBQFormat;
 
     ES92GpuHnswVectorsWriter(
         CuVSResourceManager cuVSResourceManager,
@@ -138,11 +140,13 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         this.M = M;
         this.beamWidth = beamWidth;
         this.tinySegmentsThreshold = Math.max(tinySegmentsThreshold, MIN_TINY_SEGMENTS_THRESHOLD);
+        this.isBBQFormat = flatVectorsFormat instanceof ES93BinaryQuantizedVectorsFormat;
         if (flatVectorWriter instanceof ES814ScalarQuantizedVectorsFormat.ES814ScalarQuantizedVectorsWriter) {
             dataType = CuVSMatrix.DataType.BYTE;
         } else {
-            // for float32 (hnsw) and bbq (bbq_hnsw) types, we send raw float vectors to GPU
-            assert flatVectorWriter instanceof Lucene99FlatVectorsWriter || flatVectorsFormat instanceof ES93BinaryQuantizedVectorsFormat;
+            // for float32 (hnsw), we send raw float vectors to GPU; for bbq (bbq_hnsw) too, except for merges of
+            // supported dimensions, which send the quantized vectors (see mergeBbqVectorField)
+            assert flatVectorWriter instanceof Lucene99FlatVectorsWriter || isBBQFormat;
             dataType = CuVSMatrix.DataType.FLOAT;
         }
         String metaFileName = IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, LUCENE99_HNSW_META_EXTENSION);
@@ -227,7 +231,17 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                 ? originalVectors
                 : getVectorsInSortedOrder(field, sortMap, originalVectors);
             int numVectors = vectorsInSortedOrder.size();
-            CagraIndexParams cagraIndexParams = createCagraIndexParams(fieldInfo.getVectorSimilarityFunction(), numVectors, dims);
+            CagraIndexParams cagraIndexParams = createCagraIndexParams(
+                fieldInfo.getVectorSimilarityFunction(),
+                numVectors,
+                dims,
+                M,
+                beamWidth,
+                ES92GpuHnswVectorsFormat.cagraNNDescentNumIterations(beamWidth),
+                dataType,
+                totalDeviceMemory,
+                false
+            );
 
             if (shouldBuildGraph(numVectors) == false) {
                 writeMetaWithoutGraph(fieldInfo, numVectors);
@@ -311,13 +325,39 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         CuVSMatrix dataset,
         CagraIndexParams cagraIndexParams
     ) throws IOException {
+        generateGpuGraphAndWriteMeta(
+            resourcesHolder,
+            fieldInfo,
+            (int) dataset.size(),
+            resources -> buildGPUIndex(resources, cagraIndexParams, dataset, fieldInfo),
+            () -> {}
+        );
+    }
+
+    /** Builds a {@link CagraIndex} with the given resources */
+    @FunctionalInterface
+    private interface GpuIndexBuilder {
+        CagraIndex build(CuVSResourceManager.ManagedCuVSResources resources) throws Throwable;
+    }
+
+    /**
+     * @param onIndexClosed called once the index is closed, before the resources may be released early: frees device data
+     *                      the index holds views of, see {@link BbqGpuDataset}. It may be called again by the caller.
+     */
+    private void generateGpuGraphAndWriteMeta(
+        ResourcesHolder resourcesHolder,
+        FieldInfo fieldInfo,
+        int numVectors,
+        GpuIndexBuilder indexBuilder,
+        Runnable onIndexClosed
+    ) throws IOException {
         try {
             long vectorIndexOffset = vectorIndex.getFilePointer();
             int[][] graphLevelNodeOffsets = new int[1][];
             final HnswGraph graph;
             CagraIndex index;
             try {
-                index = buildGPUIndex(resourcesHolder.resources(), cagraIndexParams, dataset, fieldInfo);
+                index = indexBuilder.build(resourcesHolder.resources());
             } catch (Exception e) {
                 throw new GPUGraphBuildException("cuVS failed to build the graph", e);
             }
@@ -336,6 +376,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                         try (var hostGraph = deviceGraph.toHost()) {
                             index.close();
                             index = null;
+                            onIndexClosed.run();
                             resourcesHolder.close();
                             graph = writeGraph(hostGraph, graphLevelNodeOffsets);
                         }
@@ -349,7 +390,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                 }
             }
             long vectorIndexLength = vectorIndex.getFilePointer() - vectorIndexOffset;
-            writeMeta(fieldInfo, vectorIndexOffset, vectorIndexLength, (int) dataset.size(), graph, graphLevelNodeOffsets);
+            writeMeta(fieldInfo, vectorIndexOffset, vectorIndexLength, numVectors, graph, graphLevelNodeOffsets);
         } catch (IOException e) {
             throw e;
         } catch (Throwable t) {
@@ -420,20 +461,42 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         return index;
     }
 
-    private CagraIndexParams createCagraIndexParams(VectorSimilarityFunction similarityFunction, int numVectors, int dims) {
-        int nnDescentNumIterations = ES92GpuHnswVectorsFormat.cagraNNDescentNumIterations(beamWidth);
-        return createCagraIndexParams(
-            similarityFunction,
+    private CagraIndex buildBbqGPUIndex(
+        CuVSResourceManager.ManagedCuVSResources cuVSResources,
+        CagraIndexParams cagraIndexParams,
+        BbqGpuDataset dataset,
+        FieldInfo fieldInfo,
+        int numVectors
+    ) throws Throwable {
+        logger.debug(
+            "Building CAGRA graph from BBQ vectors: numVectors=[{}], dims=[{}], similarity=[{}], graphDegree=[{}], "
+                + "intermediateGraphDegree=[{}], nnDescentIterations=[{}]",
             numVectors,
-            dims,
-            M,
-            beamWidth,
-            nnDescentNumIterations,
-            dataType,
-            totalDeviceMemory
+            fieldInfo.getVectorDimension(),
+            fieldInfo.getVectorSimilarityFunction(),
+            cagraIndexParams.getGraphDegree(),
+            cagraIndexParams.getIntermediateGraphDegree(),
+            cagraIndexParams.getNNDescentNumIterations()
         );
+        long startTime = System.nanoTime();
+        // no float dataset: the index only has the graph, which is all the writer reads from it
+        var index = CagraIndex.newBuilder(cuVSResources).withIndexParams(cagraIndexParams).withBbqDataset(dataset.quantizers()).build();
+        GPUSupport.incrementUsageCount();
+        cuVSResourceManager.finishedComputation(cuVSResources);
+        logger.debug(
+            "Cagra index created from BBQ vectors in: {} ms; #num vectors: {}",
+            (System.nanoTime() - startTime) / 1_000_000.0,
+            numVectors
+        );
+        return index;
     }
 
+    /**
+     * @param bbqVectors whether the graph is built from BBQ vectors (see {@link BbqGpuDataset}): cuVS only builds those
+     *                   with NN-descent, which fits in much less GPU memory than with float vectors, so it never switches
+     *                   to IVF_PQ. If the GPU doesn't have the memory, {@link CuVSResourceManager#acquire} fails and the
+     *                   graph is built on CPU.
+     */
     static CagraIndexParams createCagraIndexParams(
         VectorSimilarityFunction similarityFunction,
         int numVectors,
@@ -442,31 +505,39 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         int intermediateGraphDegree,
         int nnDescentNumIterations,
         CuVSMatrix.DataType dataType,
-        long totalDeviceMemory
+        long totalDeviceMemory,
+        boolean bbqVectors
     ) {
         // CAGRA requires the intermediate graph degree to be strictly larger than the graph degree
         intermediateGraphDegree = Math.max(graphDegree + 1, intermediateGraphDegree);
 
-        CagraIndexParams.CuvsDistanceType distanceType = switch (similarityFunction) {
-            case COSINE -> CagraIndexParams.CuvsDistanceType.CosineExpanded;
-            case EUCLIDEAN -> CagraIndexParams.CuvsDistanceType.L2Expanded;
-            case DOT_PRODUCT -> {
-                if (dataType == CuVSMatrix.DataType.BYTE) {
-                    yield CagraIndexParams.CuvsDistanceType.CosineExpanded;
+        final CagraIndexParams.CuvsDistanceType distanceType;
+        if (bbqVectors) {
+            distanceType = BbqGpuDataset.metric(similarityFunction);
+        } else {
+            distanceType = switch (similarityFunction) {
+                case COSINE -> CagraIndexParams.CuvsDistanceType.CosineExpanded;
+                case EUCLIDEAN -> CagraIndexParams.CuvsDistanceType.L2Expanded;
+                case DOT_PRODUCT -> {
+                    if (dataType == CuVSMatrix.DataType.BYTE) {
+                        yield CagraIndexParams.CuvsDistanceType.CosineExpanded;
+                    }
+                    yield CagraIndexParams.CuvsDistanceType.InnerProduct;
                 }
-                yield CagraIndexParams.CuvsDistanceType.InnerProduct;
-            }
-            case MAXIMUM_INNER_PRODUCT -> {
-                assert dataType != CuVSMatrix.DataType.BYTE;
-                yield CagraIndexParams.CuvsDistanceType.InnerProduct;
-            }
-        };
+                case MAXIMUM_INNER_PRODUCT -> {
+                    assert dataType != CuVSMatrix.DataType.BYTE;
+                    yield CagraIndexParams.CuvsDistanceType.InnerProduct;
+                }
+            };
+        }
 
         int numCPUThreads = 1; // TODO: how many CPU threads we can use?
         CagraIndexParams params;
 
         boolean useIvfPQ = false;
-        if (numVectors >= MAX_NUM_VECTORS_FOR_NN_DESCENT) {
+        if (bbqVectors) {
+            // cuVS builds a graph from BBQ vectors only with NN-descent
+        } else if (numVectors >= MAX_NUM_VECTORS_FOR_NN_DESCENT) {
             useIvfPQ = true;
         } else {
             // Check if we should use IVF_PQ due to insufficient GPU memory for NN_DESCENT
@@ -671,8 +742,11 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                     writeMetaWithoutGraph(fieldInfo, numVectors);
                 } else {
                     try {
-                        if (dataType == CuVSMatrix.DataType.FLOAT) {
-                            // for float32 (hnsw) and bbq (bbq_hnsw) types, we send raw float vectors to GPU
+                        if (isBBQFormat && BbqGpuDataset.isSupported(fieldInfo.getVectorDimension())) {
+                            // for bbq (bbq_hnsw), we send the quantized vectors to GPU
+                            mergeBbqVectorField(fieldInfo, mergeState, floatVectorValues, numVectors);
+                        } else if (dataType == CuVSMatrix.DataType.FLOAT) {
+                            // for float32 (hnsw), and bbq (bbq_hnsw) of other dimensions, we send raw float vectors to GPU
                             mergeFloatVectorField(fieldInfo, mergeState, floatVectorValues, numVectors);
                         } else {
                             // During merging, we use quantized data, so we need to support byte[] too.
@@ -731,7 +805,13 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         CagraIndexParams cagraIndexParams = createCagraIndexParams(
             fieldInfo.getVectorSimilarityFunction(),
             numVectors,
-            fieldInfo.getVectorDimension()
+            fieldInfo.getVectorDimension(),
+            M,
+            beamWidth,
+            ES92GpuHnswVectorsFormat.cagraNNDescentNumIterations(beamWidth),
+            dataType,
+            totalDeviceMemory,
+            false
         );
 
         IndexInput slice = byteVectorValues.getSlice();
@@ -801,6 +881,88 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         }
     }
 
+    /**
+     * Builds the graph of a {@code bbq_hnsw} merge from the quantized vectors rather than from the raw float vectors, see
+     * {@link BbqGpuDataset}: the 1-bit vectors the flat format has just written for the merged segment, and 4-bit vectors
+     * quantized from the raw ones, which the GPU scores against each other as the CPU merge does.
+     */
+    private void mergeBbqVectorField(FieldInfo fieldInfo, MergeState mergeState, FloatVectorValues floatVectorValues, int numVectors)
+        throws IOException, InterruptedException {
+        assert flatVectorsReader instanceof QuantizedVectorsReader;
+        var quantizedVectorValues = ((QuantizedVectorsReader) flatVectorsReader).getQuantizedVectorValues(fieldInfo.name);
+        if (quantizedVectorValues instanceof QuantizedByteVectorValues binaryVectorValues
+            && binaryVectorValues.getScalarEncoding() == QuantizedByteVectorValues.ScalarEncoding.SINGLE_BIT_QUERY_NIBBLE) {
+            mergeBbqVectorField(fieldInfo, binaryVectorValues, floatVectorValues, numVectors);
+        } else {
+            assert false : "unexpected quantized vectors for bbq: " + quantizedVectorValues;
+            mergeFloatVectorField(fieldInfo, mergeState, floatVectorValues, numVectors);
+        }
+    }
+
+    private void mergeBbqVectorField(
+        FieldInfo fieldInfo,
+        QuantizedByteVectorValues binaryVectorValues,
+        FloatVectorValues floatVectorValues,
+        int numVectors
+    ) throws IOException, InterruptedException {
+        VectorSimilarityFunction similarityFunction = fieldInfo.getVectorSimilarityFunction();
+        CagraIndexParams cagraIndexParams = createCagraIndexParams(
+            similarityFunction,
+            numVectors,
+            fieldInfo.getVectorDimension(),
+            M,
+            beamWidth,
+            ES92GpuHnswVectorsFormat.cagraNNDescentNumIterations(beamWidth),
+            CuVSMatrix.DataType.BYTE,
+            totalDeviceMemory,
+            true
+        );
+        // The resource manager estimates the memory from rows of `dims` elements of a data type, so pass the bytes a
+        // quantized vector takes on GPU as byte "dimensions".
+        // Acquire the GPU resource before staging the quantized vectors, to bound the number of concurrent temporary
+        // files (see mergeByteVectorField), although the 4-bit quantization then runs while holding the resource.
+        try (
+            var resourcesHolder = new ResourcesHolder(
+                cuVSResourceManager,
+                cuVSResourceManager.acquire(
+                    numVectors,
+                    BbqGpuDataset.bytesPerVector(fieldInfo.getVectorDimension()),
+                    CuVSMatrix.DataType.BYTE,
+                    cagraIndexParams,
+                    "merge"
+                )
+            )
+        ) {
+            final BbqGpuDataset dataset;
+            try {
+                // staged in temporary files of the merged segment, as the CPU merge stages its 4-bit vectors
+                dataset = BbqGpuDataset.create(
+                    resourcesHolder.resources(),
+                    segmentWriteState.directory,
+                    segmentWriteState.segmentInfo.name,
+                    segmentWriteState.context,
+                    binaryVectorValues,
+                    floatVectorValues,
+                    similarityFunction
+                );
+            } catch (IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new GPUGraphBuildException("cuVS failed to copy the quantized vectors to GPU", e);
+            }
+            // closed before the resources are released, and only after the index
+            try (dataset) {
+                generateGpuGraphAndWriteMeta(
+                    resourcesHolder,
+                    fieldInfo,
+                    numVectors,
+                    resources -> buildBbqGPUIndex(resources, cagraIndexParams, dataset, fieldInfo, numVectors),
+                    dataset::close
+                );
+            }
+        }
+    }
+
     private void mergeFloatVectorField(
         FieldInfo fieldInfo,
         MergeState mergeState,
@@ -810,7 +972,13 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         CagraIndexParams cagraIndexParams = createCagraIndexParams(
             fieldInfo.getVectorSimilarityFunction(),
             numVectors,
-            fieldInfo.getVectorDimension()
+            fieldInfo.getVectorDimension(),
+            M,
+            beamWidth,
+            ES92GpuHnswVectorsFormat.cagraNNDescentNumIterations(beamWidth),
+            dataType,
+            totalDeviceMemory,
+            false
         );
 
         // bbq_hnsw's on_disk_rescore and on_disk_merge don't rule out the fast path: flatVectorsReader is opened with the

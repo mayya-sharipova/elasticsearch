@@ -228,7 +228,8 @@ public class CagraParameterTranslationTests extends ESTestCase {
             intermediateGraphDegree,
             nnDescentNumIterations,
             dataType,
-            gpuMemory
+            gpuMemory,
+            false
         );
     }
 }
