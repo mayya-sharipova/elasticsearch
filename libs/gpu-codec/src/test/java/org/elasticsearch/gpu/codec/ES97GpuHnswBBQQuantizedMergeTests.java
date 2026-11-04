@@ -59,6 +59,9 @@ import static org.hamcrest.Matchers.nullValue;
  * Merges of {@code bbq_hnsw} segments on GPU, which build the graph from the quantized vectors when the dimension is a
  * multiple of 32 (see {@link BbqGpuDataset}), and otherwise from the raw float vectors.
  */
+// Production grants cuvs-java load_native_libraries through the gpu plugin's policy, which isn't visible from this library's tests.
+// Enforcing here would fail cuvs initialization, which is cached for the JVM and silently skips every GPU test that shares it.
+@ESTestCase.WithoutEntitlements
 public class ES97GpuHnswBBQQuantizedMergeTests extends ESTestCase {
 
     private static final String FIELD = "v";

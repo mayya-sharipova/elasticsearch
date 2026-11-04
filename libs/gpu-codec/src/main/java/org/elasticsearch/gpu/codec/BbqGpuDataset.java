@@ -391,7 +391,7 @@ final class BbqGpuDataset implements AutoCloseable {
             try (var mapped = MemorySegmentUtils.createFileBackedMemorySegment(path(), fileLength); Arena arena = Arena.ofConfined()) {
                 MemorySegment file = mapped.memorySegment();
                 CuVSMatrix deviceRowNorms = upload(resources, deviceMatrices, file, rowNorms, 1, CuVSMatrix.DataType.FLOAT);
-                MemorySegment centroidSegment = arena.allocate(ValueLayout.JAVA_FLOAT, dims);
+                MemorySegment centroidSegment = arena.allocate((long) dims * Float.BYTES, Float.BYTES);
                 MemorySegment.copy(centroid, 0, centroidSegment, ValueLayout.JAVA_FLOAT, 0, dims);
                 CuVSMatrix deviceCentroid = toDevice(resources, deviceMatrices, centroidSegment, 1, dims, CuVSMatrix.DataType.FLOAT);
                 CagraIndexParams.CuvsDistanceType metric = metric(similarityFunction);

@@ -31,6 +31,9 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 
+// Production grants cuvs-java load_native_libraries through the gpu plugin's policy, which isn't visible from this library's tests.
+// Enforcing here would fail cuvs initialization, which is cached for the JVM and silently skips every GPU test that shares it.
+@ESTestCase.WithoutEntitlements
 public class CuVSResourceManagerTests extends ESTestCase {
 
     private static final Logger log = LogManager.getLogger(CuVSResourceManagerTests.class);

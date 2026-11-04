@@ -60,6 +60,9 @@ import static org.elasticsearch.gpu.codec.ES92GpuHnswVectorsFormat.DEFAULT_MAX_C
  * similar but not byte-identical graphs. Instead, both tests compare aggregate recall
  * against brute-force ground truth.
  */
+// Production grants cuvs-java load_native_libraries through the gpu plugin's policy, which isn't visible from this library's tests.
+// Enforcing here would fail cuvs initialization, which is cached for the JVM and silently skips every GPU test that shares it.
+@ESTestCase.WithoutEntitlements
 public class ES92GpuHnswWriteGraphTests extends ESTestCase {
 
     static {

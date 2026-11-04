@@ -25,6 +25,9 @@ import static java.util.Locale.ROOT;
  * Step 1: ES92GpuHnswVectorsFormat translates (m, ef_construction) to (graphDegree, intermediateGraphDegree)
  * Step 2: ES92GpuHnswVectorsWriter creates CagraIndexParams from those translated values
  */
+// Production grants cuvs-java load_native_libraries through the gpu plugin's policy, which isn't visible from this library's tests.
+// Enforcing here would fail cuvs initialization, which is cached for the JVM and silently skips every GPU test that shares it.
+@ESTestCase.WithoutEntitlements
 public class CagraParameterTranslationTests extends ESTestCase {
 
     static {

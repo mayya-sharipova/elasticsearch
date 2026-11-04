@@ -52,6 +52,9 @@ import static org.hamcrest.Matchers.greaterThan;
  * codes, and the corrections, through a port of cuVS's BBQ distance ({@code bbq_calculate_metric} in
  * {@code cpp/src/preprocessing/quantize/detail/bbq_distance.cuh}).
  */
+// Production grants cuvs-java load_native_libraries through the gpu plugin's policy, which isn't visible from this library's tests.
+// Enforcing here would fail cuvs initialization, which is cached for the JVM and silently skips every GPU test that shares it.
+@ESTestCase.WithoutEntitlements
 public class BbqGpuDatasetTests extends ESTestCase {
 
     public void testIsSupported() {
