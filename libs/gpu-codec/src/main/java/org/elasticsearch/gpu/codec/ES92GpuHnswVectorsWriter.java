@@ -16,6 +16,7 @@ import com.nvidia.cuvs.CuVSMatrix;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
+import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
@@ -36,6 +37,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.store.MemorySegmentAccessInput;
 import org.apache.lucene.util.IORunnable;
+import org.apache.lucene.util.IOSupplier;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.HnswGraph.NodesIterator;
@@ -266,7 +268,13 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                                 throw new GPUGraphBuildException("cuVS failed to copy the vectors to GPU", e);
                             }
                             try (dataset) {
-                                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams);
+                                generateGpuGraphAndWriteMeta(
+                                    resourcesHolder,
+                                    fieldInfo,
+                                    dataset,
+                                    cagraIndexParams,
+                                    () -> FloatVectorValues.fromFloats(vectorsInSortedOrder, dims)
+                                );
                             }
                         }
                     } else {
@@ -323,14 +331,16 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         ResourcesHolder resourcesHolder,
         FieldInfo fieldInfo,
         CuVSMatrix dataset,
-        CagraIndexParams cagraIndexParams
+        CagraIndexParams cagraIndexParams,
+        IOSupplier<FloatVectorValues> rawVectors
     ) throws IOException {
         generateGpuGraphAndWriteMeta(
             resourcesHolder,
             fieldInfo,
             (int) dataset.size(),
             resources -> buildGPUIndex(resources, cagraIndexParams, dataset, fieldInfo),
-            () -> {}
+            () -> {},
+            rawVectors
         );
     }
 
@@ -343,13 +353,16 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
     /**
      * @param onIndexClosed called once the index is closed, before the resources may be released early: frees device data
      *                      the index holds views of, see {@link BbqGpuDataset}. It may be called again by the caller.
+     * @param rawVectors    the raw vectors of the graph's nodes, only read to link the parts of the graph that can't be reached
+     *                      from its entry point, see {@link GraphConnectivity}
      */
     private void generateGpuGraphAndWriteMeta(
         ResourcesHolder resourcesHolder,
         FieldInfo fieldInfo,
         int numVectors,
         GpuIndexBuilder indexBuilder,
-        Runnable onIndexClosed
+        Runnable onIndexClosed,
+        IOSupplier<FloatVectorValues> rawVectors
     ) throws IOException {
         try {
             long vectorIndexOffset = vectorIndex.getFilePointer();
@@ -378,10 +391,23 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                             index = null;
                             onIndexClosed.run();
                             resourcesHolder.close();
-                            graph = writeGraph(hostGraph, graphLevelNodeOffsets);
+                            // TODO: remove once a cuVS release exposes guarantee_connectivity, see GraphConnectivity
+                            int[][] extraEdges = GraphConnectivity.connectComponents(
+                                (node, neighbors) -> hostGraph.getRow(node).toArray(neighbors),
+                                (int) hostGraph.size(),
+                                (int) hostGraph.columns(),
+                                () -> DefaultFlatVectorScorer.INSTANCE.getRandomVectorScorerSupplier(
+                                    fieldInfo.getVectorSimilarityFunction(),
+                                    rawVectors.get()
+                                ),
+                                GraphConnectivity.MAX_LINKED_ISLANDS
+                            );
+                            graph = writeGraph(hostGraph, graphLevelNodeOffsets, extraEdges);
                         }
                     } else {
-                        graph = writeGraph(deviceGraph, graphLevelNodeOffsets);
+                        // Linking the parts of the graph that can't be reached from its entry point would need the whole graph
+                        // in memory, so graphs this large are written as they are, see GraphConnectivity
+                        graph = writeGraph(deviceGraph, graphLevelNodeOffsets, null);
                     }
                 }
             } finally {
@@ -576,28 +602,38 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         return params;
     }
 
-    private HnswGraph writeGraph(CuVSMatrix cagraGraph, int[][] levelNodeOffsets) throws IOException {
+    /**
+     * @param extraEdges the edges to add to each node, see {@link GraphConnectivity#connectComponents}, or null
+     */
+    private HnswGraph writeGraph(CuVSMatrix cagraGraph, int[][] levelNodeOffsets, int[][] extraEdges) throws IOException {
         long startTime = System.nanoTime();
 
         int maxElementCount = (int) cagraGraph.size();
         int maxGraphDegree = (int) cagraGraph.columns();
-        int[] neighbors = new int[maxGraphDegree];
+        // Lucene reads up to twice the graph degree of neighbours per node of the bottom level, which leaves room for the extra edges
+        int[] neighbors = new int[2 * maxGraphDegree];
 
         levelNodeOffsets[0] = new int[maxElementCount];
         // write the cagra graph to the Lucene vectorIndex file
-        int[] scratch = new int[maxGraphDegree];
+        int[] scratch = new int[2 * maxGraphDegree];
         for (int node = 0; node < maxElementCount; node++) {
             cagraGraph.getRow(node).toArray(neighbors);
+            int numNeighbors = maxGraphDegree;
+            if (extraEdges != null && extraEdges[node] != null) {
+                assert extraEdges[node].length <= maxGraphDegree : "too many extra edges: " + extraEdges[node].length;
+                System.arraycopy(extraEdges[node], 0, neighbors, numNeighbors, extraEdges[node].length);
+                numNeighbors += extraEdges[node].length;
+            }
 
             // write to the Lucene vectorIndex file
             long offsetStart = vectorIndex.getFilePointer();
-            Arrays.sort(neighbors);
+            Arrays.sort(neighbors, 0, numNeighbors);
             int actualSize = 0;
-            if (maxGraphDegree > 0) {
+            if (numNeighbors > 0) {
                 scratch[0] = neighbors[0];
                 actualSize = 1;
             }
-            for (int i = 1; i < maxGraphDegree; i++) {
+            for (int i = 1; i < numNeighbors; i++) {
                 assert neighbors[i] < maxElementCount : "node too large: " + neighbors[i] + ">=" + maxElementCount;
                 if (neighbors[i - 1] == neighbors[i]) {
                     continue;
@@ -796,6 +832,11 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
         }
     }
 
+    /** The raw vectors the flat format has written for the merged segment */
+    private IOSupplier<FloatVectorValues> mergedRawVectors(FieldInfo fieldInfo) {
+        return () -> flatVectorsReader.getFloatVectorValues(fieldInfo.name);
+    }
+
     private void mergeByteVectorField(
         FieldInfo fieldInfo,
         MergeState mergeState,
@@ -846,7 +887,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                 );
                 var dataset = DatasetUtilsImpl.fromMemorySegment(packedSegmentHolder.memorySegment(), numVectors, packedRowSize, dataType)
             ) {
-                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams);
+                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams, mergedRawVectors(fieldInfo));
             }
         } else {
             // Slow path: the merged quantized values are not mmap-backed, so build the dataset by iterating them.
@@ -876,7 +917,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                     cuVSResourceManager.acquire(numVectors, fieldInfo.getVectorDimension(), dataType, cagraIndexParams, "merge")
                 )
             ) {
-                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams);
+                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams, mergedRawVectors(fieldInfo));
             }
         }
     }
@@ -957,7 +998,8 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                     fieldInfo,
                     numVectors,
                     resources -> buildBbqGPUIndex(resources, cagraIndexParams, dataset, fieldInfo, numVectors),
-                    dataset::close
+                    dataset::close,
+                    mergedRawVectors(fieldInfo)
                 );
             }
         }
@@ -1003,7 +1045,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                 var dataset = DatasetUtils.getInstance()
                     .fromInput(memorySegmentHolder.memorySegment(), numVectors, fieldInfo.getVectorDimension(), dataType)
             ) {
-                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams);
+                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams, mergedRawVectors(fieldInfo));
             }
         } else {
             // Slow path: the merged raw vectors are not mmap-backed, so build the dataset by iterating them.
@@ -1032,7 +1074,7 @@ final class ES92GpuHnswVectorsWriter extends IndexingKnnVectorsWriter {
                     cuVSResourceManager.acquire(numVectors, fieldInfo.getVectorDimension(), dataType, cagraIndexParams, "merge")
                 )
             ) {
-                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams);
+                generateGpuGraphAndWriteMeta(resourcesHolder, fieldInfo, dataset, cagraIndexParams, mergedRawVectors(fieldInfo));
             }
         }
     }
